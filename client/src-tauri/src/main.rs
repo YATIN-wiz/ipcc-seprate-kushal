@@ -3,18 +3,21 @@
     windows_subsystem = "windows"
 )]
 
-use sysinfo::{System, ProcessesToUpdate};
-use tauri::{Emitter, Window}; 
+use sysinfo::{ProcessesToUpdate, System};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::process::Command;
 use std::time::Duration;
+use tauri::{Emitter, Window};
+
+static LOCKDOWN_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 // ─── THE BLACKLIST ───
 // These are the binary names for screen recorders, remote desktops, and VMs.
 const FORBIDDEN_PROCESSES: &[&str] = &[
-    "obs64.exe", "obs32.exe", "discord.exe", "skype.exe", 
-    "teamviewer.exe", "anydesk.exe", "vboxclient.exe", 
-    "vmtoolsd.exe", "zoom.exe", "webex.exe"
+    "obs64.exe", "obs32.exe", "discord.exe", "discord", "skype.exe",
+    "teamviewer.exe", "anydesk.exe", "vboxclient.exe",
+    "vmtoolsd.exe", "zoom.exe", "webex.exe", "telegram.exe",
+    "telegram", "whatsapp.exe", "whatsapp", "brave.exe", "brave",
 ];
 
 // ─── COMMAND: ENFORCE OS LOCKDOWN ───
@@ -35,6 +38,8 @@ fn enforce_lockdown(window: Window) -> Result<(), String> {
             return Err("MULTIPLE_DISPLAYS_DETECTED".to_string());
         }
     }
+
+    LOCKDOWN_ACTIVE.store(true, Ordering::SeqCst);
     
     Ok(())
 }
@@ -48,11 +53,11 @@ fn perform_integrity_check() -> String {
     let mut detected_threats = Vec::new();
 
     for (_pid, process) in sys.processes() {
-        // Safely convert OS string to standard Rust string before checking
         let proc_name = process.name().to_string_lossy().to_lowercase();
         for &forbidden in FORBIDDEN_PROCESSES {
             if proc_name.contains(forbidden) {
                 detected_threats.push(proc_name.clone());
+                break;
             }
         }
     }
@@ -65,16 +70,41 @@ fn perform_integrity_check() -> String {
 }
 
 // ─── COMMAND: KILL PROHIBITED APPS ───
+fn kill_forbidden_processes() -> Vec<String> {
+    let mut sys = System::new();
+    sys.refresh_processes(ProcessesToUpdate::All, true);
+
+    let mut killed = Vec::new();
+
+    for (_pid, process) in sys.processes() {
+        let proc_name = process.name().to_string_lossy().to_lowercase();
+
+        // Never touch Tauri's embedded browser runtime.
+        if proc_name.contains("msedgewebview2") {
+            continue;
+        }
+
+        for &forbidden in FORBIDDEN_PROCESSES {
+            if proc_name.contains(forbidden) {
+                if process.kill() {
+                    killed.push(proc_name.clone());
+                }
+                break;
+            }
+        }
+    }
+
+    killed
+}
+
 #[tauri::command]
 fn kill_prohibited_apps() {
-    let apps_to_kill = ["Discord.exe", "WhatsApp.exe", "Telegram.exe", "comet.exe"];
-
-    for app in apps_to_kill.iter() {
-        // /F = Force, /T = process tree, /IM = image name
-        let _ = Command::new("taskkill")
-            .args(["/F", "/T", "/IM", app])
-            .output();
-    }
+    thread::spawn(|| {
+        let killed = kill_forbidden_processes();
+        if !killed.is_empty() {
+            log::warn!("Killed prohibited apps on demand: {}", killed.join(", "));
+        }
+    });
 }
 
 fn main() {
@@ -84,21 +114,18 @@ fn main() {
             
             // ─── THE WATCHDOG THREAD ───
             thread::spawn(move || {
-                let mut sys = System::new_all();
                 loop {
-                    // sysinfo v0.30+ requires explicit update parameters
-                    sys.refresh_processes(ProcessesToUpdate::All, true);
-                    for (_pid, process) in sys.processes() {
-                        let proc_name = process.name().to_string_lossy().to_lowercase();
-                        for &forbidden in FORBIDDEN_PROCESSES {
-                            if proc_name.contains(forbidden) {
-                                // Tauri v2 uses .emit() instead of .emit_all()
-                                let _ = app_handle.emit(
-                                    "security_violation", 
-                                    format!("Banned process launched: {}", proc_name)
-                                );
-                            }
-                        }
+                    if !LOCKDOWN_ACTIVE.load(Ordering::Relaxed) {
+                        thread::sleep(Duration::from_secs(2));
+                        continue;
+                    }
+
+                    let killed = kill_forbidden_processes();
+                    if !killed.is_empty() {
+                        let _ = app_handle.emit(
+                            "security_violation",
+                            format!("Banned process terminated: {}", killed.join(", ")),
+                        );
                     }
                     thread::sleep(Duration::from_secs(5));
                 }

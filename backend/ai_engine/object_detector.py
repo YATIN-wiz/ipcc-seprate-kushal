@@ -3,6 +3,7 @@ Object detection using YOLOv8.
 Detects phones, books, additional screens, and other banned items.
 """
 
+import os
 import numpy as np
 from ultralytics import YOLO
 from typing import List
@@ -27,6 +28,18 @@ ALERT_CLASSES = {67, 73, 63, 62}  # Classes that trigger flags
 
 class ObjectDetector:
     def __init__(self, model_name: str = "yolov8n.pt"):
+        # PyTorch 2.6 defaults to weights_only=True and can reject Ultralytics model classes.
+        # This model is local/trusted in this project, so allow normal checkpoint load.
+        os.environ.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "1")
+        try:
+            import torch
+            from ultralytics.nn.tasks import DetectionModel
+
+            torch.serialization.add_safe_globals([DetectionModel])
+        except Exception:
+            # If safe globals cannot be configured, YOLO may still load on compatible versions.
+            pass
+
         self.model = YOLO(model_name)
         self.model.fuse()
         logger.info(f"YOLOv8 loaded: {model_name}")

@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 logger = logging.getLogger("ai_engine")
 
@@ -41,6 +42,18 @@ class AIEngine:
 
         self._loaded = True
         logger.info("All AI models loaded successfully.")
+
+    def ensure_object_detector(self):
+        if self._object_detector is not None:
+            return self._object_detector
+
+        from .object_detector import ObjectDetector
+
+        model_path = Path(__file__).resolve().parent.parent / "yolov8n.pt"
+        model_name = str(model_path) if model_path.exists() else "yolov8n.pt"
+        self._object_detector = ObjectDetector(model_name=model_name)
+        logger.info("  Object Detector loaded (lazy)")
+        return self._object_detector
 
     @property
     def face(self):

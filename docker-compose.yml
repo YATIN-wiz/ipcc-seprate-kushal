@@ -83,3 +83,32 @@ services:
       - redis
       - minio
     restart: always
+
+  # ─── JUDGE0: ONLINE CODE COMPILER ───
+  judge0:
+    image: judge0/judge0:1.13.0
+    restart: always
+    privileged: true
+    ports:
+      - "2358:2358"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: proctorshield
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: supersecretpassword
+      WORKERS: 1
+      MEMORY_LIMIT: 256000
+      CPU_TIME_LIMIT: 5
+      MAX_PROCESSES: 30
+      SUBMISSION_DEFAULT_LANGUAGE_ID: 71  # Python 3
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2358/languages"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

@@ -8,6 +8,9 @@ ws_url: ws://livekit:7880
 health_port: 0
 template_port: 0
 
+redis:
+  address: redis:6379
+
 # ─── EVIDENCE VAULT TARGET ───
 s3:
   access_key: admin

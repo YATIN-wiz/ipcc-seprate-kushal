@@ -13,7 +13,7 @@ if __name__ == '__main__':
     # Read from our secure javascript-injected stdin
     print(solve(js.current_stdin))`;
 
-export default function CodingTerminal({ question, onPassAll }) {
+export default function CodingTerminal({ question, onPassAll, isLocked = false, lockMessage = '' }) {
   const [code, setCode] = useState(DEFAULT_CODE);
   const [results, setResults] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -21,6 +21,12 @@ export default function CodingTerminal({ question, onPassAll }) {
 
   // Reference to the in-browser Python engine
   const pyodideRef = useRef(null);
+  const editorRef = useRef(null);
+
+  const blockClipboardEvent = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
 
   // 1. Boot the Python engine on load
   useEffect(() => {
@@ -107,7 +113,20 @@ sys.stdout = io.StringIO()
   };
 
   return (
-    <div style={styles.container}>
+    <div
+      style={styles.container}
+      onCopy={blockClipboardEvent}
+      onPaste={blockClipboardEvent}
+      onCut={blockClipboardEvent}
+      onKeyDown={(event) => {
+        const key = event?.key?.toLowerCase();
+        const ctrlOrCmd = event?.ctrlKey || event?.metaKey;
+        if (ctrlOrCmd && ['c', 'v', 'x', 'a'].includes(key)) {
+          blockClipboardEvent(event);
+        }
+      }}
+      onContextMenu={blockClipboardEvent}
+    >
       <div style={styles.header}>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
           <span style={{ color: '#94a3b8', fontWeight: 'bold' }}>Terminal:</span>
@@ -127,10 +146,10 @@ sys.stdout = io.StringIO()
 
         <button
           onClick={runCode}
-          disabled={isRunning || !isEngineReady}
-          style={isRunning || !isEngineReady ? styles.runBtnDisabled : styles.runBtn}
+          disabled={isRunning || !isEngineReady || isLocked}
+          style={isRunning || !isEngineReady || isLocked ? styles.runBtnDisabled : styles.runBtn}
         >
-          {!isEngineReady ? 'Loading Engine...' : isRunning ? 'Executing...' : 'Run All Tests'}
+          {!isEngineReady ? 'Loading Engine...' : isLocked ? 'Locked by Proctoring' : isRunning ? 'Executing...' : 'Run All Tests'}
         </button>
       </div>
 
@@ -141,8 +160,42 @@ sys.stdout = io.StringIO()
           theme="vs-dark"
           value={code}
           onChange={(val) => setCode(val || '')}
-          options={{ minimap: { enabled: false }, fontSize: 16, padding: { top: 15 } }}
+          onMount={(editor) => {
+            editorRef.current = editor;
+
+            const domNode = editor.getDomNode();
+            if (domNode) {
+              domNode.addEventListener('copy', blockClipboardEvent);
+              domNode.addEventListener('cut', blockClipboardEvent);
+              domNode.addEventListener('paste', blockClipboardEvent);
+              domNode.addEventListener('contextmenu', blockClipboardEvent);
+            }
+
+            editor.onKeyDown((event) => {
+              const key = event?.browserEvent?.key?.toLowerCase();
+              const ctrlOrCmd = event?.browserEvent?.ctrlKey || event?.browserEvent?.metaKey;
+              if (ctrlOrCmd && ['c', 'v', 'x', 'a'].includes(key)) {
+                blockClipboardEvent(event.browserEvent);
+              }
+            });
+
+            editor.onDidPaste(() => {
+              const model = editorRef.current?.getModel();
+              if (model) {
+                model.setValue(model.getValue());
+              }
+            });
+          }}
+          options={{ minimap: { enabled: false }, fontSize: 16, padding: { top: 15 }, readOnly: isLocked, domReadOnly: isLocked, contextmenu: false, copyWithSyntaxHighlighting: false }}
         />
+        {isLocked && (
+          <div style={styles.lockOverlay}>
+            <div style={styles.lockOverlayCard}>
+              <div style={styles.lockOverlayTitle}>Screen locked by proctoring</div>
+              <div style={styles.lockOverlayText}>{lockMessage || 'Please return to the camera view to continue.'}</div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={styles.resultsWrapper}>
@@ -250,9 +303,43 @@ const styles = {
     fontWeight: 'bold',
   },
   editorWrapper: {
+    position: 'relative',
     height: '350px',
     backgroundColor: '#1e1e1e',
     borderBottom: '1px solid #cbd5e1',
+  },
+  lockOverlay: {
+    position: 'absolute',
+    inset: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(2, 6, 23, 0.55)',
+    backdropFilter: 'blur(6px)',
+    zIndex: 5,
+    pointerEvents: 'auto',
+  },
+  lockOverlayCard: {
+    maxWidth: '320px',
+    padding: '18px 20px',
+    borderRadius: '16px',
+    background: 'rgba(15, 23, 42, 0.96)',
+    border: '1px solid rgba(248, 113, 113, 0.28)',
+    boxShadow: '0 18px 45px rgba(0, 0, 0, 0.35)',
+    textAlign: 'center',
+  },
+  lockOverlayTitle: {
+    color: '#fecaca',
+    fontWeight: 800,
+    fontSize: '14px',
+    marginBottom: '8px',
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+  },
+  lockOverlayText: {
+    color: '#e2e8f0',
+    fontSize: '13px',
+    lineHeight: 1.6,
   },
   resultsWrapper: {
     padding: '20px',

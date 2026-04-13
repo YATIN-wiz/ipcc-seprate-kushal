@@ -11,6 +11,7 @@ class BehavioralAlert(BaseModel):
     student_id: str
     exam_id: str
     flag_type: str
+    
     description: str
     risk_points: float
     timestamp: float

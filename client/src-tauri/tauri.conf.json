@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ws://localhost:7880 http://localhost:7880 ws://127.0.0.1:7880 http://127.0.0.1:8000 http://localhost:8000; img-src 'self' data: blob: http://127.0.0.1:8000 http://localhost:8000 https://api.dicebear.com; media-src 'self' blob: mediastream:;"
+      "csp": "default-src 'self'; connect-src 'self' https://localhost:5173 https://192.168.1.37:5173 wss://localhost:5173 wss://192.168.1.37:5173 ws://localhost:7880 http://localhost:7880 ws://127.0.0.1:7880 http://127.0.0.1:8000 http://localhost:8000; img-src 'self' data: blob: http://127.0.0.1:8000 http://localhost:8000 https://api.dicebear.com; media-src 'self' blob: mediastream:;"
     }
   },
   "bundle": {

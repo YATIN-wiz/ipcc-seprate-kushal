@@ -152,17 +152,27 @@ async def join_exam(join_req: ExamJoinRequest, db: asyncpg.Connection = Depends(
     )
 
     if not session_record:
-        # If it doesn't exist, this is their first time joining. Insert them as SCHEDULED.
+        # Idempotent insert prevents duplicate-key races when React dev mode fires duplicate requests.
         await db.execute(
             """
             INSERT INTO exam_sessions (exam_code, student_id, state, scheduled_at)
             VALUES ($1, $2, 'SCHEDULED', NOW())
+            ON CONFLICT (exam_code, student_id) DO NOTHING
             """,
             exam_code, student_id
         )
-        current_state = 'SCHEDULED'
-    else:
-        current_state = session_record['state']
+        session_record = await db.fetchrow(
+            "SELECT id, state FROM exam_sessions WHERE exam_code = $1 AND student_id = $2",
+            exam_code, student_id
+        )
+
+    if not session_record:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initialize exam session.",
+        )
+
+    current_state = session_record['state']
 
     # CRITICAL: Prevent completed/suspended exams from being rejoined
     if current_state in ['SUBMITTED', 'REPORT_GENERATED', 'ARCHIVED', 'SUSPENDED']:

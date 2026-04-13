@@ -1,16 +1,21 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import basicSsl from '@vitejs/plugin-basic-ssl';
+import tailwindcss from '@tailwindcss/vite';
+import fs from 'fs';
+import path from 'path';
 
 export default defineConfig({
-  plugins: [react(), basicSsl()],
+  plugins: [react(), tailwindcss()],
   server: {
-    host: true,
+    host: '0.0.0.0',
     port: 5173,
-    strictPort: true,
+    strictPort: false,
+    https: {
+      key: fs.readFileSync(path.resolve(__dirname, 'cert.key')),
+      cert: fs.readFileSync(path.resolve(__dirname, 'cert.crt')),
+    },
     allowedHosts: true,
     // Proxy all /ws/* requests to the FastAPI backend.
-    // This lets the phone connect via ngrok HTTPS (wss://) without mixed-content errors.
     proxy: {
       '/ws': {
         target: 'http://127.0.0.1:8000',

@@ -8,6 +8,11 @@ export default function ExamView({ exam, onAnswer, onComplete, onExamStart }) {
 
   const questions = exam?.questions || [];
 
+  const blockClipboardEvent = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   // Start exam timer
   useEffect(() => {
     if (!started) return;
@@ -110,9 +115,15 @@ export default function ExamView({ exam, onAnswer, onComplete, onExamStart }) {
             value={answers[currentQ] || ''}
             onChange={(e) => handleTextAnswer(e.target.value)}
             onPaste={(e) => {
-              e.preventDefault(); // Block paste
-              if (window.proctorAPI) {
-                // This is handled by Electron shortcuts, but also block here
+              blockClipboardEvent(e);
+            }}
+            onCopy={blockClipboardEvent}
+            onCut={blockClipboardEvent}
+            onKeyDown={(e) => {
+              const key = e?.key?.toLowerCase();
+              const ctrlOrCmd = e?.ctrlKey || e?.metaKey;
+              if (ctrlOrCmd && ['c', 'v', 'x', 'a'].includes(key)) {
+                blockClipboardEvent(e);
               }
             }}
           />

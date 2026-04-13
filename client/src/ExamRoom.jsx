@@ -8,6 +8,49 @@ import QRCode from "react-qr-code";
 import CodingTerminal from './CodingTerminal';
 import '@livekit/components-styles';
 
+// Enhanced coding questions with LeetCode-style descriptions
+const codingQuestions = [
+  {
+    id: 1,
+    title: "1. Two Sum",
+    difficulty: "Easy",
+    description: "Given an array of integers `nums` and an integer `target`, return indices of the two numbers such that they add up to `target`. You may assume that each input would have exactly one solution, and you may not use the same element twice.",
+    example: "Input: nums = [2,7,11,15], target = 9\nOutput: [0,1]\nExplanation: Because nums[0] + nums[1] == 9, we return [0, 1].",
+    type: 'coding',
+    testCases: [
+      { input: '[2,7,11,15]\n9', expected: '[0,1]' },
+      { input: '[3,2,4]\n6', expected: '[1,2]' },
+      { input: '[3,3]\n6', expected: '[0,1]' },
+    ]
+  },
+  {
+    id: 2,
+    title: "2. Valid Palindrome",
+    difficulty: "Easy",
+    description: "A phrase is a palindrome if, after converting all uppercase letters into lowercase letters and removing all non-alphanumeric characters, it reads the same forward and backward. Given a string `s`, return true if it is a palindrome, or false otherwise.",
+    example: "Input: s = 'A man, a plan, a canal: Panama'\nOutput: true\nExplanation: 'amanaplanacanalpanama' is a palindrome.",
+    type: 'coding',
+    testCases: [
+      { input: 'A man, a plan, a canal: Panama', expected: 'true' },
+      { input: '0P', expected: 'false' },
+      { input: 'a.', expected: 'true' },
+    ]
+  },
+  {
+    id: 3,
+    title: "3. String to Integer",
+    difficulty: "Medium",
+    description: "Implement the `myAtoi(string s)` function, which converts a string to a 32-bit signed integer (similar to C/C++'s `atoi` function). The algorithm is as follows: Read in and ignore any leading whitespace. Check if the next character (if not already at the end of the string) is '-' or '+'. Read in next characters until the next non-digit character or the end of the input is reached. The rest of the string is ignored.",
+    example: "Input: s = '42'\nOutput: 42\nInput: s = '-91283472332'\nOutput: -2147483648 (clamped to 32-bit integer)",
+    type: 'coding',
+    testCases: [
+      { input: '42', expected: '42' },
+      { input: '   -42', expected: '-42' },
+      { input: '4193 with words', expected: '4193' },
+    ]
+  }
+];
+
 const QUESTIONS = [
   {
     type: 'mcq',
@@ -18,18 +61,26 @@ const QUESTIONS = [
   {
     type: 'coding',
     id: 2,
-    text: 'Write a Python function that takes a string input and prints it in ALL CAPS.',
-    testCases: [
-      { input: 'hello', expected: 'HELLO' },
-      { input: 'proctorshield', expected: 'PROCTORSHIELD' },
-      { input: 'bangalore123', expected: 'BANGALORE123' },
-    ],
+    text: 'Two Sum Problem',
+    ...codingQuestions[0],
   },
   {
     type: 'mcq',
     id: 3,
     text: 'Which language is primarily used for React?',
     options: ['Python', 'Java', 'JavaScript', 'C++'],
+  },
+  {
+    type: 'coding',
+    id: 4,
+    text: 'Valid Palindrome Problem',
+    ...codingQuestions[1],
+  },
+  {
+    type: 'coding',
+    id: 5,
+    text: 'String to Integer Problem',
+    ...codingQuestions[2],
   },
 ];
 
@@ -57,6 +108,9 @@ function decodeJwtSafe(token) {
 export default function ExamRoom({ erpToken, examCode, cameraId, micId }) {
   const [livekitToken, setLivekitToken] = useState(null);
   const [error, setError] = useState('');
+  const configuredLivekitWsUrl = (import.meta.env.VITE_PUBLIC_LIVEKIT_WS_URL || '').trim();
+  const runtimeLivekitWsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/livekit-ws`;
+  const livekitServerUrl = configuredLivekitWsUrl || runtimeLivekitWsUrl;
   
   // Fetch Token
   useEffect(() => {
@@ -67,8 +121,25 @@ export default function ExamRoom({ erpToken, examCode, cameraId, micId }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: erpToken, exam_code: examCode })
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || "Failed to join exam");
+        const rawBody = await response.text();
+        let data = {};
+
+        if (rawBody) {
+          try {
+            data = JSON.parse(rawBody);
+          } catch {
+            data = { detail: rawBody };
+          }
+        }
+
+        if (!response.ok) {
+          throw new Error(data.detail || data.message || "Failed to join exam");
+        }
+
+        if (!data.token) {
+          throw new Error("Join response did not include a video token.");
+        }
+
         setLivekitToken(data.token);
       } catch (err) {
         setError(`Connection blocked: ${err.message}`);
@@ -85,25 +156,39 @@ export default function ExamRoom({ erpToken, examCode, cameraId, micId }) {
       video={{ deviceId: cameraId }}
       audio={{ deviceId: micId }}
       token={livekitToken}
-        serverUrl={`wss://${window.location.host}/livekit-ws`}
+      serverUrl={livekitServerUrl}
       connect={true}
       style={styles.meshBackground}
     >
-      <ExamInterface erpToken={erpToken} examCode={examCode} livekitToken={livekitToken} />
+      <ExamInterface
+        erpToken={erpToken}
+        examCode={examCode}
+        livekitToken={livekitToken}
+        livekitServerUrl={livekitServerUrl}
+      />
     </LiveKitRoom>
   );
 }
 
 // Separate component so we can use LiveKit hooks
-function ExamInterface({ erpToken, examCode, livekitToken }) {
-  // 🔧 UPDATE THIS with your laptop's IPv4 address (find it with: ipconfig)
-  const LOCAL_IP = "192.168.0.249"; // Replace with your actual IPv4 address
+function ExamInterface({ erpToken, examCode, livekitToken, livekitServerUrl }) {
+  const configuredAppOrigin = (import.meta.env.VITE_PUBLIC_APP_ORIGIN || '').trim().replace(/\/$/, '');
+  const configuredLanHost = (import.meta.env.VITE_LAN_IP || '').trim();
+  const currentHost = window.location.hostname;
+  const isLocalHost = currentHost === 'localhost' || currentHost === '127.0.0.1' || currentHost === '::1';
+  const qrHost = configuredLanHost || (isLocalHost ? '' : currentHost);
+  const appPort = window.location.port || '5173';
+  const appProtocol = window.location.protocol === 'https:' ? 'https' : 'http';
+  const wsProtocol = appProtocol === 'https' ? 'wss' : 'ws';
 
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [timeLeft, setTimeLeft] = useState(1800);
   const [isFinished, setIsFinished] = useState(false);
+  const [blockingAnomaly, setBlockingAnomaly] = useState(null);
   const videoElementRef = useRef(null);
+  const blockingAnomalyRef = useRef(null);
+  const lastAnomalyAlertRef = useRef({ key: '', at: 0 });
   const claims = decodeJwtSafe(erpToken);
   const displayUsn = claims.sub || claims.usn || claims.student_id || 'UNKNOWN';
 
@@ -122,6 +207,32 @@ function ExamInterface({ erpToken, examCode, livekitToken }) {
     try {
       await room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
     } catch (e) {}
+  };
+
+  const setBlockingState = (nextAnomaly) => {
+    blockingAnomalyRef.current = nextAnomaly;
+    setBlockingAnomaly(nextAnomaly);
+  };
+
+  const raiseBlockingAnomaly = async (nextAnomaly) => {
+    const now = Date.now();
+    const previous = blockingAnomalyRef.current;
+    const shouldNotify = !previous || previous.key !== nextAnomaly.key || now - lastAnomalyAlertRef.current.at > 4000;
+
+    if (shouldNotify) {
+      await sendAlert(nextAnomaly.message, nextAnomaly.severity || 'critical');
+      lastAnomalyAlertRef.current = { key: nextAnomaly.key, at: now };
+    }
+
+    if (!previous || previous.key !== nextAnomaly.key || previous.message !== nextAnomaly.message) {
+      setBlockingState(nextAnomaly);
+    }
+  };
+
+  const clearBlockingAnomaly = () => {
+    if (blockingAnomalyRef.current) {
+      setBlockingState(null);
+    }
   };
 
   // ==========================================
@@ -175,18 +286,21 @@ function ExamInterface({ erpToken, examCode, livekitToken }) {
           // 🔥 THE GOLDEN LOG: This tells us exactly what the AI sees!
           console.log(`👁️ [AI] Scan complete: ${faces.length} faces detected.`);
 
-          const now = Date.now();
-          if (now - lastAlertTime < 3000) return; // Anti-spam
-
           if (faces.length === 0) {
-            sendAlert("No face detected on screen", "critical");
-            lastAlertTime = now;
+            await raiseBlockingAnomaly({
+              key: 'NO_FACE_DETECTED',
+              message: 'Anomaly: No face detected. Please come to the screen.',
+              severity: 'critical',
+            });
             return;
           }
 
           if (faces.length > 1) {
-            sendAlert(`MULTIPLE PEOPLE DETECTED (${faces.length})`, "critical");
-            lastAlertTime = now;
+            await raiseBlockingAnomaly({
+              key: 'MULTIPLE_FACES',
+              message: `Anomaly: Multiple faces detected (${faces.length}). Only one student is allowed.`,
+              severity: 'critical',
+            });
             return;
           }
 
@@ -202,15 +316,25 @@ function ExamInterface({ erpToken, examCode, livekitToken }) {
 
           const noseXPosition = (nose.x - leftEye.x) / faceWidth;
           if (noseXPosition < 0.15 || noseXPosition > 0.85) {
-            sendAlert("Student looking away from screen", "warning");
-            lastAlertTime = now;
+            await raiseBlockingAnomaly({
+              key: 'LOOKING_AWAY',
+              message: 'Anomaly: Face is not centered. Please look at the screen.',
+              severity: 'warning',
+            });
+            return;
           }
 
           const noseYPosition = (nose.y - leftEye.y) / faceHeight;
           if (noseYPosition > 0.75) {
-            sendAlert("Student looking down at desk", "warning");
-            lastAlertTime = now;
+            await raiseBlockingAnomaly({
+              key: 'LOOKING_DOWN',
+              message: 'Anomaly: Looking down detected. Please look at the screen.',
+              severity: 'warning',
+            });
+            return;
           }
+
+          clearBlockingAnomaly();
 
         } catch (e) {
           console.error("❌ [AI] Crash during scan:", e);
@@ -239,9 +363,19 @@ function ExamInterface({ erpToken, examCode, livekitToken }) {
   };
 
   const currentQ = QUESTIONS[currentQuestionIndex];
-  const mobileUrl = LOCAL_IP
-    ? `https://${LOCAL_IP}:5173/?mode=mobile&token=${livekitToken}&server=wss://${LOCAL_IP}:5173/livekit-ws`
+  const appBaseUrl = configuredAppOrigin || (qrHost ? `${appProtocol}://${qrHost}:${appPort}` : '');
+  const mobileUrl = appBaseUrl
+    ? `${appBaseUrl}/?mode=mobile&token=${livekitToken}&server=${encodeURIComponent(livekitServerUrl || `${wsProtocol}://${qrHost}:${appPort}/livekit-ws`)}`
     : '';
+
+  let qrTargetLabel = 'Set VITE_LAN_IP';
+  if (appBaseUrl) {
+    try {
+      qrTargetLabel = new URL(appBaseUrl).host;
+    } catch {
+      qrTargetLabel = appBaseUrl;
+    }
+  }
 
   return (
     <div style={styles.examContainer}>
@@ -269,7 +403,14 @@ function ExamInterface({ erpToken, examCode, livekitToken }) {
 
       <div style={{display: 'flex', gap: '20px', flex: 1}}>
         {/* EXAM CONTENT */}
-        <div style={styles.glassCardMain}>
+        <div
+          style={{
+            ...styles.glassCardMain,
+            pointerEvents: blockingAnomaly ? 'none' : 'auto',
+            filter: blockingAnomaly ? 'blur(2px) saturate(0.7)' : 'none',
+            userSelect: blockingAnomaly ? 'none' : 'auto',
+          }}
+        >
           {isFinished ? (
              <h2 style={{color: '#10b981'}}>✅ Exam Submitted.</h2>
           ) : (
@@ -296,11 +437,40 @@ function ExamInterface({ erpToken, examCode, livekitToken }) {
                   ))}
                 </div>
               ) : (
-                <div style={{ height: '600px', marginBottom: '20px' }}>
-                  <CodingTerminal
-                    question={currentQ}
-                    onPassAll={() => setAnswers({ ...answers, [currentQuestionIndex]: 'ALL_TESTS_PASSED' })}
-                  />
+                /* SPLIT-PANE CODING ENVIRONMENT (LeetCode-style) */
+                <div style={styles.splitPaneContainer}>
+                  {/* LEFT SIDE: Problem Description */}
+                  <div style={styles.problemPanel}>
+                    <div style={styles.problemHeader}>
+                      <h2 style={styles.problemTitle}>{currentQ.title}</h2>
+                      <span style={{
+                        ...styles.difficultyBadge,
+                        backgroundColor: currentQ.difficulty === 'Easy' ? '#dcfce7' : currentQ.difficulty === 'Medium' ? '#fef3c7' : '#fee2e2',
+                        color: currentQ.difficulty === 'Easy' ? '#166534' : currentQ.difficulty === 'Medium' ? '#92400e' : '#991b1b',
+                      }}>
+                        {currentQ.difficulty}
+                      </span>
+                    </div>
+                    <div style={styles.problemDescription}>
+                      <p>{currentQ.description}</p>
+                    </div>
+                    <h3 style={styles.exampleLabel}>Example</h3>
+                    <div style={styles.exampleCode}>
+                      {currentQ.example.split('\n').map((line, idx) => (
+                        <div key={idx}>{line}</div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* RIGHT SIDE: Monaco Editor & Judge0 */}
+                  <div style={styles.editorPanel}>
+                    <CodingTerminal
+                      question={currentQ}
+                      isLocked={Boolean(blockingAnomaly)}
+                      lockMessage={blockingAnomaly?.message || ''}
+                      onPassAll={() => setAnswers({ ...answers, [currentQuestionIndex]: 'ALL_TESTS_PASSED' })}
+                    />
+                  </div>
                 </div>
               )}
               <div style={styles.navigation}>
@@ -324,7 +494,7 @@ function ExamInterface({ erpToken, examCode, livekitToken }) {
           <div style={styles.glassSidebarCard}>
             <h4 style={{margin: '0 0 10px 0', fontSize: '14px'}}>📱 Desk Cam</h4>
             <div style={{ color: '#334155', fontSize: '12px', marginBottom: '10px' }}>
-              QR target: {LOCAL_IP}:5173
+              QR target: {qrTargetLabel}
             </div>
             <div style={{ background: 'white', padding: '10px', borderRadius: '12px', display: 'flex', justifyContent: 'center' }}>
               <QRCode value={mobileUrl || 'https://localhost:5173'} size={120} />
@@ -332,6 +502,22 @@ function ExamInterface({ erpToken, examCode, livekitToken }) {
           </div>
         </div>
       </div>
+
+      {blockingAnomaly && (
+        <div style={styles.anomalyOverlay}>
+          <div style={styles.anomalyCard}>
+            <div style={styles.anomalyPill}>AI MONITORING ACTIVE</div>
+            <h2 style={styles.anomalyTitle}>{blockingAnomaly.message}</h2>
+            <p style={styles.anomalyBody}>
+              Your exam timer is still running. Fix the anomaly to regain control of the screen.
+            </p>
+            <div style={styles.anomalyFooter}>
+              <div style={styles.anomalyTimerLabel}>Timer continues</div>
+              <div style={styles.anomalyTimerValue}>{formatTime(timeLeft)}</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -358,4 +544,149 @@ const styles = {
   navBtnPrimary: { background: '#3b82f6', color: 'white', padding: '15px 30px', borderRadius: '12px', border: 'none', cursor: 'pointer', fontWeight: 'bold' },
   sidebarLight: { width: '280px', display: 'flex', flexDirection: 'column', gap: '15px' },
   glassSidebarCard: { background: 'rgba(255, 255, 255, 0.7)', borderRadius: '16px', padding: '20px', border: '1px solid white', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' },
+  anomalyOverlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 1000,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '24px',
+    background: 'rgba(2, 6, 23, 0.72)',
+    backdropFilter: 'blur(10px)',
+  },
+  anomalyCard: {
+    width: 'min(680px, 100%)',
+    borderRadius: '24px',
+    padding: '28px',
+    background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.96))',
+    border: '1px solid rgba(248, 113, 113, 0.35)',
+    boxShadow: '0 30px 90px rgba(0,0,0,0.45)',
+    color: '#f8fafc',
+    textAlign: 'center',
+  },
+  anomalyPill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '6px 12px',
+    borderRadius: '999px',
+    background: 'rgba(248, 113, 113, 0.16)',
+    color: '#fecaca',
+    fontSize: '12px',
+    fontWeight: 800,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    marginBottom: '16px',
+  },
+  anomalyTitle: {
+    margin: '0 0 12px 0',
+    fontSize: '28px',
+    lineHeight: 1.2,
+    fontWeight: 900,
+    color: '#fff',
+  },
+  anomalyBody: {
+    margin: '0 auto 20px auto',
+    maxWidth: '520px',
+    fontSize: '16px',
+    lineHeight: 1.7,
+    color: '#cbd5e1',
+  },
+  anomalyFooter: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '14px',
+    paddingTop: '8px',
+  },
+  anomalyTimerLabel: {
+    fontSize: '12px',
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    color: '#94a3b8',
+  },
+  anomalyTimerValue: {
+    minWidth: '96px',
+    padding: '10px 14px',
+    borderRadius: '14px',
+    background: 'rgba(15, 23, 42, 0.9)',
+    border: '1px solid rgba(148, 163, 184, 0.25)',
+    color: '#f8fafc',
+    fontSize: '28px',
+    fontWeight: 900,
+    fontVariantNumeric: 'tabular-nums',
+  },
+  
+  // Split-Pane Coding Environment Styles
+  splitPaneContainer: { 
+    display: 'flex', 
+    width: '100%', 
+    height: '75vh', 
+    border: '1px solid #cbd5e1', 
+    borderRadius: '16px', 
+    overflow: 'hidden', 
+    boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
+    backgroundColor: '#ffffff',
+    marginBottom: '20px',
+  },
+  problemPanel: { 
+    width: '50%', 
+    padding: '30px', 
+    overflowY: 'auto', 
+    borderRight: '1px solid #e2e8f0', 
+    backgroundColor: '#f8fafc',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '20px',
+  },
+  problemHeader: { 
+    display: 'flex', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: '20px',
+  },
+  problemTitle: { 
+    fontSize: '24px', 
+    fontWeight: '700', 
+    color: '#0f172a', 
+    margin: '0',
+  },
+  difficultyBadge: { 
+    padding: '6px 12px', 
+    borderRadius: '20px', 
+    fontSize: '12px', 
+    fontWeight: '600',
+  },
+  problemDescription: { 
+    fontSize: '16px', 
+    lineHeight: '1.6', 
+    color: '#334155',
+  },
+  exampleLabel: { 
+    fontSize: '13px', 
+    fontWeight: '600', 
+    color: '#64748b', 
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    margin: '10px 0 8px 0',
+  },
+  exampleCode: { 
+    backgroundColor: '#1e293b', 
+    padding: '16px', 
+    borderRadius: '8px', 
+    fontFamily: 'monospace', 
+    fontSize: '13px', 
+    color: '#4ade80', 
+    whiteSpace: 'pre-wrap',
+    wordWrap: 'break-word',
+    boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)',
+  },
+  editorPanel: { 
+    width: '50%', 
+    backgroundColor: '#1e1e1e',
+    display: 'flex',
+    flexDirection: 'column',
+  },
 };

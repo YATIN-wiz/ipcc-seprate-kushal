@@ -42,6 +42,22 @@ export default function MobileStream() {
 
     const startVideo = async () => {
       try {
+        // Check if media devices are available
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          // For HTTP access or unsupported browsers, show info
+          const isHttps = window.location.protocol === "https:";
+          const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+          
+          if (!isHttps && !isLocalhost) {
+            setStatus("⚠️ HTTPS Required");
+            setErrorMsg("Camera requires HTTPS. In production, please use HTTPS URLs.");
+          } else {
+            setStatus("❌ Camera Not Supported");
+            setErrorMsg("Your browser does not support camera access.");
+          }
+          return;
+        }
+
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "environment", width: { ideal: 480 } },
         });
@@ -54,8 +70,8 @@ export default function MobileStream() {
           videoRef.current.srcObject = stream;
         }
       } catch (err) {
-        setStatus("❌ Camera Blocked");
-        setErrorMsg(err.message);
+        setStatus("❌ Camera Error");
+        setErrorMsg(err.message || "Could not access camera. Check permissions and try again.");
       }
     };
 

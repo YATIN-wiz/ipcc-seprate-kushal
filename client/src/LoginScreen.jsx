@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './App.css';
+import { warmupFaceModels } from './utils/faceWarmup';
 
 export default function LoginScreen({ onJoin }) {
   const [examCode, setExamCode] = useState('CS101');
@@ -11,6 +12,40 @@ export default function LoginScreen({ onJoin }) {
   const [selectedMic, setSelectedMic] = useState('');
   const [statusText, setStatusText] = useState('Loading devices...');
   const [isPreflighting, setIsPreflighting] = useState(false);
+
+  useEffect(() => {
+    const preloadAIModels = async () => {
+      try {
+        await warmupFaceModels('/models');
+      } catch (err) {
+        console.warn('AI model preload setup failed, fallback will load later.', err);
+      }
+    };
+
+    preloadAIModels();
+  }, []);
+
+  const launchSecureExam = async () => {
+    const isTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
+    if (!isTauri) {
+      return;
+    }
+
+    const [{ invoke }, { getCurrentWindow }] = await Promise.all([
+      import('@tauri-apps/api/core'),
+      import('@tauri-apps/api/window'),
+    ]);
+
+    await invoke('kill_prohibited_apps');
+    await invoke('enforce_lockdown');
+
+    try {
+      const appWindow = getCurrentWindow();
+      await appWindow.setFocus();
+    } catch (e) {
+      console.warn('Window focus warning:', e);
+    }
+  };
 
   useEffect(() => {
     if (!navigator.mediaDevices) {
@@ -53,36 +88,6 @@ export default function LoginScreen({ onJoin }) {
 
   }, []);
 
-  const tryEnableKioskMode = async () => {
-    const isTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
-    if (!isTauri) {
-      console.log('Kiosk mode skipped: not running inside Tauri desktop runtime');
-      return;
-    }
-
-    const [{ invoke }, { getCurrentWindow }] = await Promise.all([
-      import('@tauri-apps/api/core'),
-      import('@tauri-apps/api/window'),
-    ]);
-
-    const integrity = await invoke('perform_integrity_check');
-    if (integrity !== 'SECURE') {
-      throw new Error(`Security policy violation: ${integrity}`);
-    }
-
-    await invoke('kill_prohibited_apps');
-
-    await invoke('enforce_lockdown');
-
-    // Focus can fail on some Windows policies; do not make it a hard blocker.
-    try {
-      const appWindow = getCurrentWindow();
-      await appWindow.setFocus();
-    } catch (e) {
-      console.warn('Window focus warning:', e);
-    }
-  };
-
   const handleStart = async (e) => {
     e.preventDefault();
 
@@ -92,14 +97,6 @@ export default function LoginScreen({ onJoin }) {
     }
 
     setIsPreflighting(true);
-
-    try {
-      await tryEnableKioskMode();
-    } catch (err) {
-      const errorMessage = err?.message || String(err);
-      alert(`Kiosk warning: ${errorMessage}. Continuing login.`);
-      console.error('Lockdown failed:', err);
-    }
 
     try {
       const response = await fetch('/api/v1/preflight-context', {
@@ -112,6 +109,8 @@ export default function LoginScreen({ onJoin }) {
       if (!response.ok) {
         throw new Error(data.detail || 'Failed to validate ERP token.');
       }
+
+      await launchSecureExam();
 
       onJoin({
         examCode: data.exam_code || examCode,
@@ -189,7 +188,7 @@ export default function LoginScreen({ onJoin }) {
           </div>
 
           <button type="submit" className="launch-btn">
-            {isPreflighting ? 'Validating Profile...' : 'Continue to Security Check'}
+            {isPreflighting ? 'Validating Profile...' : 'Launch Secure Exam'}
           </button>
         </form>
       </div>

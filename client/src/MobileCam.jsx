@@ -5,15 +5,39 @@ import { Track } from 'livekit-client';
 export default function MobileCam() {
   const [hasStarted, setHasStarted] = useState(false);
   const [livekitError, setLivekitError] = useState('');
+  const [mediaSupported, setMediaSupported] = useState(true);
 
   const queryParams = new URLSearchParams(window.location.search);
   const token = queryParams.get('token');
   const serverUrl = queryParams.get('server');
 
+  // Check if browser supports media devices on component mount
+  React.useEffect(() => {
+    const isHttps = window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const hasMediaSupport = navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function';
+    
+    if (!hasMediaSupport) {
+      setMediaSupported(false);
+      if (!isHttps) {
+        setLivekitError('Camera access requires HTTPS. Use an HTTPS connection or localhost.');
+      } else {
+        setLivekitError('Your browser does not support camera access.');
+      }
+    }
+  }, []);
+
   if (!token || !serverUrl) {
     return (
       <div style={styles.error}>
         <div style={styles.errorCard}>Invalid security link. Scan the QR code again.</div>
+      </div>
+    );
+  }
+
+  if (!mediaSupported) {
+    return (
+      <div style={styles.error}>
+        <div style={styles.errorCard}>{livekitError}</div>
       </div>
     );
   }

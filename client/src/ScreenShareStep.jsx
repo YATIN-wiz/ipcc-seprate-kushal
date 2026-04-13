@@ -2,8 +2,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'react-qr-code';
 
 export default function ScreenShareStep({ studentData, onNext }) {
-  // 🔧 UPDATE THIS with your laptop's IPv4 address (find it with: ipconfig)
-  const LOCAL_IP = "192.168.0.249"; // Replace with your actual IPv4 address
+  const configuredAppOrigin = (import.meta.env.VITE_PUBLIC_APP_ORIGIN || '').trim().replace(/\/$/, '');
+  const configuredLivekitWsUrl = (import.meta.env.VITE_PUBLIC_LIVEKIT_WS_URL || '').trim();
+  const configuredLanHost = (import.meta.env.VITE_LAN_IP || '').trim();
+  const currentHost = window.location.hostname;
+  const isLocalHost = currentHost === 'localhost' || currentHost === '127.0.0.1' || currentHost === '::1';
+  const qrHost = configuredLanHost || (isLocalHost ? '' : currentHost);
+  const appPort = window.location.port || '5173';
+  const appProtocol = window.location.protocol === 'https:' ? 'https' : 'http';
+  const wsProtocol = appProtocol === 'https' ? 'wss' : 'ws';
 
   const [isSharing, setIsSharing] = useState(false);
   const [error, setError] = useState('');
@@ -19,8 +26,8 @@ export default function ScreenShareStep({ studentData, onNext }) {
         return;
       }
 
-      if (!LOCAL_IP) {
-        setMobileStatus('Update LOCAL_IP in ScreenShareStep.jsx with your laptop IP address.');
+      if (!configuredAppOrigin && !qrHost) {
+        setMobileStatus('Set VITE_LAN_IP in client/.env to your laptop IP (example: VITE_LAN_IP=192.168.29.33), then restart npm run dev.');
         return;
       }
 
@@ -41,10 +48,19 @@ export default function ScreenShareStep({ studentData, onNext }) {
           throw new Error(data.detail || 'Could not issue mobile desk-cam token.');
         }
 
-        const serverUrl = `wss://${LOCAL_IP}:5173/livekit-ws`;
-        const qrUrl = `https://${LOCAL_IP}:5173/?mode=mobile&token=${encodeURIComponent(data.token)}&server=${encodeURIComponent(serverUrl)}`;
+        const appBaseUrl = configuredAppOrigin || `${appProtocol}://${qrHost}:${appPort}`;
+        const serverUrl = configuredLivekitWsUrl || `${wsProtocol}://${qrHost}:${appPort}/livekit-ws`;
+        const qrUrl = `${appBaseUrl}/?mode=mobile&token=${encodeURIComponent(data.token)}&server=${encodeURIComponent(serverUrl)}`;
+
+        let targetLabel = appBaseUrl;
+        try {
+          targetLabel = new URL(appBaseUrl).host;
+        } catch {
+          // Keep full URL label as fallback if URL parsing fails.
+        }
+
         setMobileUrl(qrUrl);
-        setMobileStatus('Phone link ready. Scan QR with phone camera.');
+        setMobileStatus(`Phone link ready on ${targetLabel}. Scan QR with phone camera.`);
       } catch (err) {
         setMobileStatus(`Phone link failed: ${err.message}`);
       }

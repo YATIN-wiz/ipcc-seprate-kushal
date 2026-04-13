@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import LoginScreen from './LoginScreen';
 import ScreenShareStep from './ScreenShareStep';
 import FaceVerifyStep from './FaceVerifyStep';
-import ExamRoom from './ExamRoom';
 import MobileCam from './MobileCam';
 import ProctorDashboard from './ProctorDashboard';
+import ExamInterface from './components/ExamInterface';
 
 export default function App() {
   const queryParams = new URLSearchParams(window.location.search);
@@ -13,6 +13,9 @@ export default function App() {
   }
   if (queryParams.get('mode') === 'proctor') {
     return <ProctorDashboard />;
+  }
+  if (queryParams.get('mode') === 'modern') {
+    return <ExamInterface studentName="Divyansh Rai" />;
   }
 
   const [currentStep, setCurrentStep] = useState('login');
@@ -28,7 +31,7 @@ export default function App() {
     setCurrentStep('face_verify');
   };
 
-  const handleFaceVerifySuccess = () => {
+  const handleFaceVerifySuccess = async () => {
     setCurrentStep('exam');
   };
 
@@ -42,14 +45,7 @@ export default function App() {
         <FaceVerifyStep studentData={sessionData} onNext={handleFaceVerifySuccess} />
       )}
       {currentStep === 'exam' && sessionData && (
-        <ExamRoom
-          erpToken={sessionData.erpToken}
-          examCode={sessionData.examCode}
-          cameraId={sessionData.cameraId}
-          micId={sessionData.micId}
-          studentId={sessionData.studentId}
-          studentName={sessionData.studentName}
-        />
+        <ExamInterface studentName={sessionData.studentName || 'Divyansh Rai'} />
       )}
     </div>
   );

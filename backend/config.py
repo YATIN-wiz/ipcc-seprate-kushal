@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     LIVEKIT_API_SECRET: str = "your-super-secret-key-that-is-long-enough-for-sha256-crypto"
     LIVEKIT_URL: str = "ws://127.0.0.1:7880"
 
+    # ── Judge0 Code Compiler ──
+    JUDGE0_URL: str = "http://localhost:2358"
+    JUDGE0_API_TOKEN: str = ""
+    CODE_SUBMISSION_TIMEOUT: int = 10  # seconds
+    MAX_CODE_LENGTH: int = 50000  # characters
+
     class Config:
         env_file = ".env"
 

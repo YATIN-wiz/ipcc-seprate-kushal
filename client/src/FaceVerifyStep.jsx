@@ -1,17 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as faceapi from '@vladmandic/face-api';
+import { warmupFaceModels } from './utils/faceWarmup';
 
 export default function FaceVerifyStep({ studentData, onNext }) {
   const [loadingModels, setLoadingModels] = useState(true);
+  const [modelLoadError, setModelLoadError] = useState('');
   const [matchingStatus, setMatchingStatus] = useState('Initializing AI Core...');
   const [isFaceMatched, setIsFaceMatched] = useState(false);
   const [isFullyVerified, setIsFullyVerified] = useState(false);
+  const [isLaunchingExam, setIsLaunchingExam] = useState(false);
 
   const [blinkCount, setBlinkCount] = useState(0);
   const [blinkProgress, setBlinkProgress] = useState(0);
   const [selectedUser, setSelectedUser] = useState('/divyansh.jpg');
 
   const videoRef = useRef(null);
+  const canvasRef = useRef(null);
   const erpPhotoRef = useRef(null);
   const detectionIntervalRef = useRef(null);
 
@@ -23,21 +27,38 @@ export default function FaceVerifyStep({ studentData, onNext }) {
   useEffect(() => {
     const loadModels = async () => {
       setLoadingModels(true);
+      setModelLoadError('');
       setMatchingStatus('Downloading AI Models...');
 
       try {
-        const MODEL_URL = '/models';
-        await Promise.all([
-          faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-        ]);
+        await warmupFaceModels('/models');
+        const ssdOptions = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 });
 
-        setLoadingModels(false);
-        setMatchingStatus('Models Loaded. Starting Camera...');
+        // GPU Warmup: Pre-compile WebGL shaders
+        setMatchingStatus('Compiling GPU kernels...');
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 320;
+          canvas.height = 240;
+          const dummyVideo = document.createElement('video');
+          dummyVideo.width = 320;
+          dummyVideo.height = 240;
+          // Trigger warmup detection to compile shaders without blocking indefinitely.
+          await Promise.race([
+            faceapi.detectSingleFace(dummyVideo, ssdOptions),
+            new Promise((resolve) => setTimeout(resolve, 3000)),
+          ]);
+        } catch {
+          // Warmup failure is non-critical
+        }
+
+        setMatchingStatus('Models Ready. Starting Camera...');
       } catch (err) {
         console.error('Failed to load AI models:', err);
-        setMatchingStatus('Error: Could not load AI models from /public/models');
+        setModelLoadError(err.message || 'Unknown model loading failure');
+        setMatchingStatus(`Error: Could not load AI models from /models. ${err.message}`);
+      } finally {
+        setLoadingModels(false);
       }
     };
 
@@ -45,7 +66,7 @@ export default function FaceVerifyStep({ studentData, onNext }) {
   }, []);
 
   useEffect(() => {
-    if (loadingModels) return;
+    if (loadingModels || modelLoadError) return;
 
     const startCamera = async () => {
       try {
@@ -78,10 +99,102 @@ export default function FaceVerifyStep({ studentData, onNext }) {
         videoRef.current.srcObject.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [loadingModels, studentData?.cameraId]);
+  }, [loadingModels, modelLoadError, studentData?.cameraId]);
 
   useEffect(() => {
-    if (loadingModels || !videoRef.current) return;
+    if (loadingModels || modelLoadError || !videoRef.current) return;
+    const ssdOptions = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 });
+
+    const waitForImageReady = async (img) => {
+      if (!img) {
+        throw new Error('ERP image element unavailable');
+      }
+
+      if (img.complete && img.naturalWidth > 0) {
+        return;
+      }
+
+      await new Promise((resolve, reject) => {
+        const onLoad = () => {
+          cleanup();
+          resolve();
+        };
+        const onError = () => {
+          cleanup();
+          reject(new Error('ERP image failed to load'));
+        };
+        const timeoutId = setTimeout(() => {
+          cleanup();
+          reject(new Error('ERP image load timed out'));
+        }, 8000);
+
+        const cleanup = () => {
+          clearTimeout(timeoutId);
+          img.removeEventListener('load', onLoad);
+          img.removeEventListener('error', onError);
+        };
+
+        img.addEventListener('load', onLoad, { once: true });
+        img.addEventListener('error', onError, { once: true });
+      });
+    };
+
+    const drawOverlay = (detection, matchDistance = null) => {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (!video || !canvas) return;
+
+      const displaySize = {
+        width: video.videoWidth || video.clientWidth || 220,
+        height: video.videoHeight || video.clientHeight || 220,
+      };
+
+      faceapi.matchDimensions(canvas, displaySize);
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (!detection) {
+        return;
+      }
+
+      const resizedDetection = faceapi.resizeResults(detection, displaySize);
+      faceapi.draw.drawFaceLandmarks(canvas, resizedDetection);
+
+      const isKnown = matchDistance !== null ? matchDistance < 0.45 : isFaceMatched;
+      const label = isKnown ? 'Verified Student' : 'Unknown / No Match';
+      const boxColor = isKnown ? '#10b981' : '#ef4444';
+
+      new faceapi.draw.DrawBox(resizedDetection.detection.box, {
+        label,
+        boxColor,
+        lineWidth: 3,
+      }).draw(canvas);
+    };
+
+    const precomputeERPDescriptor = async () => {
+      if (!erpPhotoRef.current || erpDescriptorRef.current) return;
+      try {
+        setMatchingStatus('Preparing identity baseline...');
+        await waitForImageReady(erpPhotoRef.current);
+
+        const erpDetection = await faceapi
+          .detectSingleFace(
+            erpPhotoRef.current,
+            ssdOptions
+          )
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (erpDetection?.descriptor) {
+          erpDescriptorRef.current = erpDetection.descriptor;
+        } else {
+          setMatchingStatus('Could not find a face in ERP image. Use a clearer photo.');
+        }
+      } catch (err) {
+        console.error('Failed to precompute ERP descriptor:', err);
+        setMatchingStatus(`Baseline setup failed: ${err.message}`);
+      }
+    };
 
     const runLoop = () => {
       setMatchingStatus('Camera stream active. Running face verification...');
@@ -97,43 +210,31 @@ export default function FaceVerifyStep({ studentData, onNext }) {
         try {
           // Gear 1: heavier identity matching (descriptor extraction) only until matched.
           if (!isFaceMatched) {
+            setMatchingStatus('Extracting facial features...');
             const detection = await faceapi
               .detectSingleFace(
                 videoRef.current,
-                new faceapi.SsdMobilenetv1Options({ minConfidence: 0.15 })
+                ssdOptions
               )
               .withFaceLandmarks()
               .withFaceDescriptor();
 
             if (!detection) {
+              drawOverlay(null);
               setMatchingStatus('No face detected... Please look at the camera.');
               return;
             }
 
             if (!erpDescriptorRef.current) {
-              try {
-                const erpDetection = await faceapi
-                  .detectSingleFace(
-                    erpPhotoRef.current,
-                    new faceapi.SsdMobilenetv1Options({ minConfidence: 0.15 })
-                  )
-                  .withFaceLandmarks()
-                  .withFaceDescriptor();
-
-                if (!erpDetection?.descriptor) {
-                  setMatchingStatus('Could not read ERP photo face.');
-                  return;
-                }
-
-                erpDescriptorRef.current = erpDetection.descriptor;
-              } catch {
-                return;
-              }
+              setMatchingStatus('Could not read ERP photo face.');
+              return;
             }
 
             const dist = faceapi.euclideanDistance(erpDescriptorRef.current, detection.descriptor);
+            console.log(`AI Match Score: ${dist.toFixed(3)} (Needs to be under 0.45)`);
+            drawOverlay(detection, dist);
 
-            if (dist < 0.60) {
+            if (dist < 0.45) {
               setIsFaceMatched(true);
               setMatchingStatus(`Identity Verified! (Match Score: ${(1 - dist).toFixed(2)})`);
             } else {
@@ -144,11 +245,12 @@ export default function FaceVerifyStep({ studentData, onNext }) {
             const lightweightDetection = await faceapi
               .detectSingleFace(
                 videoRef.current,
-                new faceapi.SsdMobilenetv1Options({ minConfidence: 0.15 })
+                ssdOptions
               )
               .withFaceLandmarks();
 
             if (!lightweightDetection) return;
+            drawOverlay(lightweightDetection, 0.0);
 
             const leftEye = lightweightDetection.landmarks.getLeftEye();
             const rightEye = lightweightDetection.landmarks.getRightEye();
@@ -188,22 +290,34 @@ export default function FaceVerifyStep({ studentData, onNext }) {
       }, 200);
     };
 
-    const video = videoRef.current;
-    video.onplay = runLoop;
+    // Precompute ERP descriptor before starting detection loop
+    precomputeERPDescriptor().then(() => {
+      const video = videoRef.current;
+      if (video) {
+        video.onplay = runLoop;
+        if (video.readyState >= 2 && !video.paused) {
+          runLoop();
+        }
+      }
+    });
 
-    if (video.readyState >= 2 && !video.paused) {
-      runLoop();
-    }
+    const video = videoRef.current;
 
     return () => {
       if (detectionIntervalRef.current) {
         clearInterval(detectionIntervalRef.current);
       }
+      if (canvasRef.current) {
+        const ctx = canvasRef.current.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        }
+      }
       if (video) {
         video.onplay = null;
       }
     };
-  }, [loadingModels, isFaceMatched, isFullyVerified, selectedUser]);
+  }, [loadingModels, modelLoadError, isFaceMatched, isFullyVerified, selectedUser]);
 
   useEffect(() => {
     erpDescriptorRef.current = null;
@@ -214,6 +328,13 @@ export default function FaceVerifyStep({ studentData, onNext }) {
     setBlinkCount(0);
     setBlinkProgress(0);
     setMatchingStatus('ERP profile changed. Running face verification...');
+
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
+    }
   }, [selectedUser]);
 
   const forcePass = () => {
@@ -245,6 +366,16 @@ export default function FaceVerifyStep({ studentData, onNext }) {
             }
           `}</style>
         </div>
+      ) : modelLoadError ? (
+        <div style={styles.loadingContainer}>
+          <h2 style={{ color: '#991b1b', marginTop: '20px', textAlign: 'center' }}>AI models could not be initialized.</h2>
+          <p style={{ color: '#475569', maxWidth: '720px', textAlign: 'center', marginTop: '12px', lineHeight: 1.5 }}>
+            {modelLoadError}
+          </p>
+          <p style={{ color: '#64748b', marginTop: '8px' }}>
+            Check that <span style={{ fontWeight: '600' }}>/models</span> is being served by the client and contains the detector, landmark, and recognition assets.
+          </p>
+        </div>
       ) : (
         <div style={styles.glassCard}>
           <h2 style={{ textAlign: 'center', margin: '0 0 20px 0' }}>Identity Verification</h2>
@@ -265,9 +396,8 @@ export default function FaceVerifyStep({ studentData, onNext }) {
               <div style={styles.imageWrapper}>
                 <img
                   ref={erpPhotoRef}
-                  src={selectedUser}
+                  src="/student_profile.jpg"
                   alt="ERP Profile"
-                  crossOrigin="anonymous"
                   onError={(e) => {
                     e.currentTarget.src = '/student_profile.jpg';
                   }}
@@ -285,6 +415,12 @@ export default function FaceVerifyStep({ studentData, onNext }) {
                   muted
                   playsInline
                   style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}
+                />
+                <canvas
+                  ref={canvasRef}
+                  width={220}
+                  height={220}
+                  style={styles.overlayCanvas}
                 />
               </div>
             </div>
@@ -304,8 +440,22 @@ export default function FaceVerifyStep({ studentData, onNext }) {
             </p>
           </div>
 
-          <button style={isFullyVerified ? styles.buttonGreen : styles.buttonDisabled} onClick={onNext} disabled={!isFullyVerified}>
-            {isFullyVerified ? 'Verification Complete - Enter Exam ->' : 'Awaiting AI checks...'}
+          <button
+            style={isFullyVerified ? styles.buttonGreen : styles.buttonDisabled}
+            onClick={async () => {
+              if (!isFullyVerified || isLaunchingExam) return;
+              setIsLaunchingExam(true);
+              try {
+                await onNext();
+              } catch (error) {
+                setMatchingStatus(`Launch blocked: ${error?.message || String(error)}`);
+              } finally {
+                setIsLaunchingExam(false);
+              }
+            }}
+            disabled={!isFullyVerified || isLaunchingExam}
+          >
+            {isLaunchingExam ? 'Opening Exam...' : isFullyVerified ? 'Enter Exam ->' : 'Awaiting AI checks...'}
           </button>
 
           {!isFullyVerified && (
@@ -387,6 +537,7 @@ const styles = {
   box: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' },
   label: { color: '#475569', marginBottom: '10px', fontSize: '14px', fontWeight: 'bold' },
   imageWrapper: {
+    position: 'relative',
     width: '220px',
     height: '220px',
     borderRadius: '16px',
@@ -394,6 +545,16 @@ const styles = {
     backgroundColor: '#f1f5f9',
     border: '4px solid white',
     boxShadow: '0 4px 10px rgba(0,0,0,0.05)',
+  },
+  overlayCanvas: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    transform: 'scaleX(-1)',
+    pointerEvents: 'none',
+    zIndex: 10,
   },
   statusBanner: {
     background: 'rgba(255, 255, 255, 0.8)',

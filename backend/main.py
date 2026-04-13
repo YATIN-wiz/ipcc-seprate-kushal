@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 import asyncpg
 
 # Import our secure enterprise routers
-from routers import auth, exam, telemetry
+from routers import auth, exam, telemetry, execute
 
 # ─── LOGGING SETUP ───
 logging.basicConfig(level=logging.INFO)
@@ -53,6 +53,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(exam.router)
 app.include_router(telemetry.router) 
+app.include_router(execute.router, prefix="/api/v1")
 
 student_photos_dir = Path(__file__).resolve().parent / "student_photos"
 if student_photos_dir.exists():
