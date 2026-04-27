@@ -220,7 +220,29 @@ export default function AdminDashboard() {
           </div>
         </div>
         <div className="admin-header-right">
-          <span className="admin-clock">{clock.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            <span className="admin-clock">{clock.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })}</span>
+            <button 
+              className="logout-btn" 
+              onClick={() => {
+                localStorage.clear();
+                window.location.href = 'http://localhost:8000/frontend/login.html';
+              }}
+              style={{
+                background: '#ef4444',
+                color: 'white',
+                border: 'none',
+                padding: '8px 16px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                lineHeight: '1',
+                height: '36px'
+              }}
+            >
+              Logout
+            </button>
+          </div>
           <span className={`ws-status ${wsConnected ? "connected" : "disconnected"}`}>
             <span className="ws-dot" />
             {wsConnected ? "System Online" : "Reconnecting…"}

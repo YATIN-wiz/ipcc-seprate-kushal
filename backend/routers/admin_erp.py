@@ -834,3 +834,13 @@ async def create_course_admin(
             body.semester, body.credits,
         )
     return {"message": "Course created", "course_id": str(cid)}
+
+
+@router.post("/logout")
+async def logout(current_user: dict = Depends(get_current_admin)):
+    """
+    Handle admin logout. 
+    Since we use JWT, client-side token removal is primary.
+    This endpoint can be used for session logging or revocation if implemented.
+    """
+    return {"message": "Logged out successfully"}

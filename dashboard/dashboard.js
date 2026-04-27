@@ -6,7 +6,19 @@ document.addEventListener("DOMContentLoaded", () => {
     // In-memory state of active students
     const activeStudents = new Map();
 
+    // ─── AUTH CHECK & LOGOUT ───
+    const TOKEN = localStorage.getItem('ps_a_tok');
+    if (!TOKEN) {
+        window.location.href = '../frontend/login.html';
+    }
+
+    window.logout = () => {
+        localStorage.clear();
+        window.location.href = '../frontend/login.html';
+    };
+
     // ─── WEBSOCKET CONNECTION ───
+
     const ws = new WebSocket('ws://localhost:8000/api/v1/admin/ws');
 
     ws.onopen = () => {

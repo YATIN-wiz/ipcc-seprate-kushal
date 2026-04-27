@@ -1703,6 +1703,19 @@
     })();
 
     // ═══════════════════════════════════
+    // TIMEZONE HELPER
+    // ═══════════════════════════════════
+    function datetimeLocalToUTC(datetimeLocalString) {
+      // Convert datetime-local string (e.g., "2024-04-27T14:00") to UTC ISO string
+      // datetimeLocalString is interpreted by JS as UTC, but it's actually local time
+      // We need to subtract the timezone offset to get actual UTC time
+      const dt = new Date(datetimeLocalString);
+      const offset = dt.getTimezoneOffset() * 60000; // Convert minutes to milliseconds
+      const utcTime = new Date(dt.getTime() - offset); // SUBTRACT offset to get real UTC
+      return utcTime.toISOString();
+    }
+
+    // ═══════════════════════════════════
     // API
     // ═══════════════════════════════════
     async function api(path, method = 'GET', body = null) {
@@ -1968,18 +1981,21 @@
           target_branch: branch, target_section: section,
           exam_type: type, duration_mins: parseInt(duration),
           total_marks: parseFloat(marks),
-          start_time: new Date(start).toISOString(),
-          end_time: new Date(end).toISOString(),
+          start_time: datetimeLocalToUTC(start),
+          end_time: datetimeLocalToUTC(end),
         });
         CUR_EXAM_ID = d.exam_id;
         CUR_EXAM_CODE = d.exam_code;
         // Save form details for review page
+        // Store the raw datetime-local values (not converted yet)
+        const startLocal = document.getElementById('ex-start').value;
+        const endLocal = document.getElementById('ex-end').value;
         CUR_EXAM_DETAILS = {
           title: document.getElementById('ex-title').value,
           branch: document.getElementById('ex-branch').value,
           section: document.getElementById('ex-section').value,
-          start: document.getElementById('ex-start').value,
-          end: document.getElementById('ex-end').value,
+          start: startLocal,  // Keep as datetime-local for display
+          end: endLocal,      // Keep as datetime-local for display
           marks: document.getElementById('ex-marks').value,
           type: document.getElementById('ex-type').value,
         };
@@ -2148,11 +2164,26 @@
       const marks = d.marks || document.getElementById('ex-marks').value || '—';
       const type = d.type || document.getElementById('ex-type').value || '—';
 
-      // Convert ISO to datetime-local format for input fields
-      function toLocal(iso) {
-        if (!iso) return '';
-        try { return new Date(iso).toISOString().slice(0, 16); }
-        catch (_) { return iso.slice(0, 16); }
+      // Convert to datetime-local format for input fields
+      // Handles both ISO strings (from backend) and datetime-local strings (from form)
+      function toLocal(timeStr) {
+        if (!timeStr) return '';
+        try {
+          // If it already looks like datetime-local format (YYYY-MM-DDTHH:mm), return as-is
+          if (timeStr.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)) {
+            return timeStr;
+          }
+          // If it's an ISO string, convert to local datetime-local format
+          const dt = new Date(timeStr);
+          const y = dt.getFullYear();
+          const m = String(dt.getMonth() + 1).padStart(2, '0');
+          const d = String(dt.getDate()).padStart(2, '0');
+          const h = String(dt.getHours()).padStart(2, '0');
+          const min = String(dt.getMinutes()).padStart(2, '0');
+          return `${y}-${m}-${d}T${h}:${min}`;
+        } catch (_) {
+          return timeStr.slice(0, 16);
+        }
       }
 
       document.getElementById('review-content').innerHTML = `
@@ -2209,8 +2240,8 @@
         }
         try {
           await api(`/teacher/update-exam-time/${CUR_EXAM_ID}`, 'PATCH', {
-            start_time: new Date(newStart).toISOString(),
-            end_time: new Date(newEnd).toISOString(),
+            start_time: datetimeLocalToUTC(newStart),
+            end_time: datetimeLocalToUTC(newEnd),
           });
         } catch (_) {
           // If update fails, still proceed to publish
@@ -2237,12 +2268,23 @@
       // Load exam details from MY_EXAMS for review page
       const exam = MY_EXAMS.find(e => e.exam_id === examId);
       if (exam) {
+        // Convert ISO times from backend to local datetime-local format for editing
+        function isoToLocal(isoStr) {
+          if (!isoStr) return '';
+          const dt = new Date(isoStr);
+          const y = dt.getFullYear();
+          const m = String(dt.getMonth() + 1).padStart(2, '0');
+          const d = String(dt.getDate()).padStart(2, '0');
+          const h = String(dt.getHours()).padStart(2, '0');
+          const min = String(dt.getMinutes()).padStart(2, '0');
+          return `${y}-${m}-${d}T${h}:${min}`;
+        }
         CUR_EXAM_DETAILS = {
           title: exam.title,
           branch: exam.target_branch,
           section: exam.target_section,
-          start: exam.start_time,
-          end: exam.end_time,
+          start: isoToLocal(exam.start_time),  // Convert to datetime-local
+          end: isoToLocal(exam.end_time),      // Convert to datetime-local
           marks: exam.total_marks,
           type: exam.exam_type,
         };

@@ -294,7 +294,9 @@
     .nav .ni {
       font-size: 16px;
       width: 20px;
-      text-align: center
+      text-align: center;
+      
+      
     }
 
     .nav .nb {
@@ -993,10 +995,8 @@
         <div class="nav" onclick="toggleTheme()" id="theme-btn" style="margin-bottom:4px">
           <span class="ni" id="theme-icon">🌙</span> <span id="theme-label">Dark Mode</span>
         </div>
-        <div class="nav" onclick="toggleTheme()" id="theme-btn" style="margin-bottom:4px">
-          <span class="ni" id="theme-icon">🌙</span> <span id="theme-label">Dark Mode</span>
-        </div>
-        <div class="nav" onclick="doLogout()" style="color:var(--red);margin-top:4px"><span class="ni">↩</span> Logout
+        <div class="nav" onclick="doLogout()" style="color:var(--red);margin-top:4px">
+          <span class="ni">↩</span> Logout
         </div>
       </div>
     </aside>
@@ -1534,9 +1534,13 @@
       }[st] || '';
     }
 
-    function doLogout() {
-      localStorage.removeItem('ps_a_tok');
-      localStorage.removeItem('ps_a_usr');
+    async function doLogout() {
+      try {
+        await api('/admin/logout', 'POST');
+      } catch (e) {
+        console.error('Logout error:', e);
+      }
+      localStorage.clear();
       window.location.href = 'login.html';
     }
 
