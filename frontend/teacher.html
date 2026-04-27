@@ -2372,7 +2372,8 @@
 
       try {
         const d = await api(`/teacher/submissions/${examId}`);
-        const subs = d || [];
+        const subs = Array.isArray(d) ? d : (d?.submissions || d?.data || []);
+        console.log('Submissions response:', d);
         if (!subs.length) { div.innerHTML = `<div class="empty"><p>No submissions for this exam yet.</p></div>`; return; }
 
         div.innerHTML = `
@@ -2408,7 +2409,16 @@
         ${answers.map(a => `
           <div class="ans-block">
             <div class="ans-q">Q: ${a.question_title || 'Question'} <span style="float:right;color:var(--muted)">${a.max_marks} marks</span></div>
-            <div class="ans-text">${JSON.stringify(a.answer_data)}</div>
+            <div class="ans-text">${typeof a.answer_data === 'object'
+            ? (a.answer_data.selected
+              ? 'Selected: ' + (Array.isArray(a.answer_data.selected)
+                ? a.answer_data.selected.join(', ')
+                : a.answer_data.selected)
+              : a.answer_data.text
+                ? 'Answer: ' + a.answer_data.text
+                : JSON.stringify(a.answer_data))
+            : (a.answer_data || '—')
+          }</div>
             <div class="ans-marks">
               <label style="font-size:12px;color:var(--muted)">Marks:</label>
               <input class="marks-input" type="number" min="0" max="${a.max_marks}" step="0.5"
@@ -2425,10 +2435,9 @@
       if (!EVAL_SUB_ID) { toast('No submission selected', 'err'); return; }
       const totalMarks = Object.values(EVAL_ANSWERS).reduce((s, m) => s + m, 0);
       try {
-        await api('/teacher/evaluate', 'POST', null);
-        // Call evaluate with marks
-        await fetch(`${BASE}/teacher/evaluate?submission_id=${EVAL_SUB_ID}&marks=${totalMarks}`, {
-          method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN }
+        await api('/teacher/evaluate-submission', 'POST', {
+          submission_id: EVAL_SUB_ID,
+          marks: totalMarks,
         });
         toast('Evaluation saved ✓', 'ok');
         closeModal('m-submission');

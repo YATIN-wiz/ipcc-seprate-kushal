@@ -105,15 +105,62 @@ export default function LoginScreen({ onJoin }) {
         body: JSON.stringify({ erp_jwt_token: erpToken }),
       });
 
+      // changed the existing code base from here 🙏
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(data.detail || 'Failed to validate ERP token.');
       }
 
+      // ── Fetch exam_id from ERP using exam_code ──────────────────────────
+      const resolvedExamCode = data.exam_code || examCode;
+      const examRes = await fetch(
+        `http://localhost:8000/student/exam-by-code/${resolvedExamCode}`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${erpToken}`,
+          },
+        }
+      );
+      const examData = await examRes.json().catch(() => ({}));
+      if (!examRes.ok) {
+        throw new Error(examData.detail || 'Could not load exam details.');
+      }
+      // ────────────────────────────────────────────────────────────────────
+
+      // ────────────────────────────────────────────────────────────────────
+
+      // Auto start-exam so submission row exists before questions load
+      const startRes = await fetch('/student/start-exam', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${erpToken}` },
+        body: JSON.stringify({ exam_id: examData.exam_id }),
+      });
+      // 400 means already started — that's fine, continue
+      if (!startRes.ok && startRes.status !== 400) {
+        const startErr = await startRes.json().catch(() => ({}));
+        throw new Error(startErr.detail || 'Failed to start exam');
+      }
+      
+
+     
+
       await launchSecureExam();
 
+      console.log('DEBUG sessionData:', {
+        examId: examData.exam_id,
+        examCode: resolvedExamCode,
+        duration: examData.duration_mins,
+        studentId: data.student_id,
+      });
+
       onJoin({
-        examCode: data.exam_code || examCode,
+        examCode: resolvedExamCode,
+        examId: examData.exam_id,        // ← new
+        examTitle: examData.title,           // ← new
+        durationMins: examData.duration_mins,   // ← new
+        totalMarks: examData.total_marks,     // ← new
         erpToken,
         cameraId: selectedCamera,
         micId: selectedMic,
@@ -121,6 +168,7 @@ export default function LoginScreen({ onJoin }) {
         studentName: data.student_name,
         erpPhotoUrl: data.erp_photo_url,
       });
+      // until here i changed the existing codebase because after preflight succeeds, fetch exam_id using the exam_code
     } catch (err) {
       const errorMessage = err?.message || String(err);
       alert('Preflight Error: ' + errorMessage);

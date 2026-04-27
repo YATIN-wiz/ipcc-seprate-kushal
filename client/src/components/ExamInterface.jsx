@@ -4,104 +4,142 @@ import Editor from '@monaco-editor/react';
 import QRCode from 'react-qr-code';
 import * as faceapi from '@vladmandic/face-api';
 
-const EXAM_DURATION_SECONDS = 30 * 60;
-
-const QUESTIONS = [
-  {
-    id: 1,
-    title: 'Contiguous Zero-Weight Override',
-    difficulty: 'Hard',
-    description:
-      'You are given a directed weighted graph with N nodes and M edges. You start from node 0 and must reach node N-1 with minimum travel cost. You may use one contiguous override segment to make those edges zero-weight. Return the minimum possible total cost, or -1 if unreachable.',
-    inputFormat: [
-      'Line 1: N M',
-      'Next M lines: u v w (directed edge u -> v with weight w)',
-      'Output: minimum cost from 0 to N-1 with one contiguous override segment',
-    ],
-    starterCode: `def solve(input_str):
-    # Parse input and return the answer as a string
-    return ""
+const EXAM_DURATION_SECONDS = 30 * 60; // fallback only
 
 
-if __name__ == "__main__":
-    import sys
-    data = sys.stdin.read()
-    print(solve(data))`,
-    testCases: [
-      { input: '4 4\n0 1 4\n1 2 6\n2 3 3\n0 3 20\n', expected: '0' },
-      { input: '5 5\n0 1 8\n1 2 2\n2 4 5\n0 3 7\n3 4 6\n', expected: '0' },
-    ],
-  },
-  {
-    id: 2,
-    title: 'Two Sum',
-    difficulty: 'Easy',
-    description:
-      'Given an integer array nums and integer target, return indices of two numbers so they add to target. Assume one valid answer and no reuse of same element.',
-    inputFormat: ['Line 1: space-separated numbers', 'Line 2: target', 'Output: [i,j] with i < j'],
-    starterCode: `def solve(input_str):
-    lines = [line.strip() for line in input_str.strip().splitlines() if line.strip()]
-    nums = list(map(int, lines[0].split()))
-    target = int(lines[1])
-    seen = {}
-    for i, x in enumerate(nums):
-      if (target - x) in seen:
-        return f"[{seen[target - x]},{i}]"
-      seen[x] = i
-    return "[]"
 
-
-if __name__ == "__main__":
-    import sys
-    data = sys.stdin.read()
-    print(solve(data))`,
-    testCases: [
-      { input: '2 7 11 15\n9\n', expected: '[0,1]' },
-      { input: '3 2 4\n6\n', expected: '[1,2]' },
-    ],
-  },
-  {
-    id: 3,
-    title: 'Valid Palindrome',
-    difficulty: 'Easy',
-    description:
-      'Given string s, return true if it reads same forward and backward after lowercasing and removing non-alphanumeric characters.',
-    inputFormat: ['Line 1: string s', 'Output: true or false'],
-    starterCode: `def solve(input_str):
-    s = ''.join(ch.lower() for ch in input_str if ch.isalnum())
-    return str(s == s[::-1]).lower()
-
-
-if __name__ == "__main__":
-    import sys
-    data = sys.stdin.read()
-    print(solve(data))`,
-    testCases: [
-      { input: 'A man, a plan, a canal: Panama\n', expected: 'true' },
-      { input: 'race a car\n', expected: 'false' },
-    ],
-  },
-];
-
-export default function ExamInterface({ studentName = 'Divyansh Rai' }) {
+export default function ExamInterface({ studentName = 'Student', sessionData = null, cameraId = null }) {
   const [showCameraPreview, setShowCameraPreview] = useState(true);
   const [showQR, setShowQR] = useState(false);
   const [language, setLanguage] = useState('python');
   const [activeTab, setActiveTab] = useState('output');
   const [isExecuting, setIsExecuting] = useState(false);
   const [consoleOutput, setConsoleOutput] = useState('[INFO] Waiting for execution...\n');
-  const [timeLeft, setTimeLeft] = useState(EXAM_DURATION_SECONDS);
+  const [questions, setQuestions] = useState([]);
+  const [questionsLoading, setQuestionsLoading] = useState(true);
+  const [questionsError, setQuestionsError] = useState('');
+  const [timeLeft, setTimeLeft] = useState(
+    sessionData?.durationMins ? sessionData.durationMins * 60 : EXAM_DURATION_SECONDS
+  );
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [leftPaneWidth, setLeftPaneWidth] = useState(45);
   const [editorHeight, setEditorHeight] = useState(70);
   const [resultsByQuestionId, setResultsByQuestionId] = useState({});
   const [blockingAnomaly, setBlockingAnomaly] = useState(null);
   const [cameraError, setCameraError] = useState('');
-  const [codeByQuestionId, setCodeByQuestionId] = useState(() => {
-    const initial = {};
-    for (const question of QUESTIONS) initial[question.id] = question.starterCode;
-    return initial;
-  });
+  const [answers, setAnswers] = useState({});  // for non-coding questions
+  const [codeByQuestionId, setCodeByQuestionId] = useState({});
+
+  // ── Fetch questions from ERP backend ──────────────────────────────────────
+  useEffect(() => {
+    if (!sessionData?.examId || !sessionData?.erpToken) {
+      // Fallback to hardcoded questions for demo mode
+      const fallback = [
+        {
+          id: 1,
+          title: 'Two Sum',
+          difficulty: 'Easy',
+          type: 'coding',
+          description: 'Given an array and target, return indices of two numbers that add to target.',
+          inputFormat: ['Line 1: space-separated numbers', 'Line 2: target', 'Output: [i,j]'],
+          starterCode: `def solve(input_str):\n    # Write your solution\n    return ""\n\nif __name__ == "__main__":\n    import sys\n    data = sys.stdin.read()\n    print(solve(data))`,
+          testCases: [{ input: '2 7 11 15\n9\n', expected: '[0,1]' }],
+        }
+      ];
+      setQuestions(fallback);
+      setCodeByQuestionId({ 1: fallback[0].starterCode });
+      setQuestionsLoading(false);
+      return;
+    }
+
+    const fetchQuestions = async () => {
+      try {
+        setQuestionsLoading(true);
+        const res = await fetch(
+          `/student/questions/${sessionData.examId}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${sessionData.erpToken}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Failed to load questions');
+
+        // Map API response to ExamInterface format
+        const mapped = (data.questions || []).map((q, idx) => ({
+          id: q.id,
+          title: q.title,
+          difficulty: 'Medium',
+          type: q.question_type,    // 'coding','mcq','one_word','short_answer','true_false','match_following'
+          description: q.description || q.title,
+          marks: q.marks,
+
+          // Coding specific
+          inputFormat: q.input_format ? [q.input_format] : [],
+          outputFormat: q.output_format ? [q.output_format] : [],
+          constraints: q.constraints ? [q.constraints] : [],
+          starterCode: `def solve(input_str):\n    # Write your solution here\n    return ""\n\nif __name__ == "__main__":\n    import sys\n    data = sys.stdin.read()\n    print(solve(data))`,
+          testCases: (() => {
+            try {
+              const raw = typeof q.test_cases === 'string' ? JSON.parse(q.test_cases) : (q.test_cases || []);
+              return raw.filter(tc => !tc.is_hidden).map(tc => ({ input: tc.input, expected: tc.expected_output }));
+            } catch { return []; }
+          })(),
+
+          // MCQ specific
+          options: (() => {
+            try {
+              const raw = typeof q.options === 'string' ? JSON.parse(q.options) : q.options;
+              return raw?.options?.map(o => o.text) || [];
+            } catch { return []; }
+          })(),
+          correctOptions: (() => {
+            try {
+              const raw = typeof q.correct_options === 'string' ? JSON.parse(q.correct_options) : q.correct_options;
+              return Array.isArray(raw) ? raw : [];
+            } catch { return []; }
+          })(),
+          isMultiCorrect: (() => {
+            try {
+              const raw = typeof q.correct_options === 'string' ? JSON.parse(q.correct_options) : q.correct_options;
+              return Array.isArray(raw) && raw.length > 1;
+            } catch { return false; }
+          })(),
+          correctOptions: q.correct_options || [],
+          isMultiCorrect: (q.correct_options || []).length > 1,
+
+          // One word / short answer
+          expectedAnswer: q.expected_answer || '',
+
+          // Match the following
+          leftItems: (() => { try { return typeof q.left_items === 'string' ? JSON.parse(q.left_items) : (q.left_items || []); } catch { return []; } })(),
+          rightItems: (() => { try { return typeof q.right_items === 'string' ? JSON.parse(q.right_items) : (q.right_items || []); } catch { return []; } })(),
+        }));
+
+        console.log('RAW first question options:', data.questions?.[0]?.options);
+        console.log('MAPPED first question options:', mapped[0]?.options);
+
+        setQuestions(mapped);
+
+        // Init code state for coding questions
+        const codeInit = {};
+        mapped.forEach(q => {
+          if (q.type === 'coding') codeInit[q.id] = q.starterCode;
+        });
+        setCodeByQuestionId(codeInit);
+
+      } catch (err) {
+        console.error('Failed to fetch questions:', err);
+        setQuestionsError(err.message);
+      } finally {
+        setQuestionsLoading(false);
+      }
+    };
+
+    fetchQuestions();
+  }, [sessionData?.examId]);
 
   const layoutRef = useRef(null);
   const rightStackRef = useRef(null);
@@ -115,9 +153,14 @@ export default function ExamInterface({ studentName = 'Divyansh Rai' }) {
   const lastObjectAnomalyRef = useRef(null);
   const editorRef = useRef(null);
 
-  const currentQuestion = QUESTIONS[currentQuestionIndex];
-  const editorCode = codeByQuestionId[currentQuestion.id] || currentQuestion.starterCode;
-  const currentResults = resultsByQuestionId[currentQuestion.id] || [];
+  const currentQuestion = questions[currentQuestionIndex] || null;
+  console.log('blockingAnomaly:', blockingAnomaly);
+  const editorCode = currentQuestion
+    ? (codeByQuestionId[currentQuestion.id] || currentQuestion.starterCode || '')
+    : '';
+  const currentResults = currentQuestion
+    ? (resultsByQuestionId[currentQuestion.id] || [])
+    : [];
 
   const blockClipboardEvent = (event) => {
     event.preventDefault();
@@ -174,7 +217,9 @@ export default function ExamInterface({ studentName = 'Divyansh Rai' }) {
     const startMonitoring = async () => {
       try {
         setCameraError('');
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: cameraId ? { deviceId: { exact: cameraId } } : true, audio: false
+        });
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop());
           return;
@@ -192,11 +237,14 @@ export default function ExamInterface({ studentName = 'Divyansh Rai' }) {
         await faceapi.nets.ssdMobilenetv1.loadFromUri('/models');
         await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
       } catch {
+
+        console.warn('AI models failed to load:', modelErr);
         setBlockingAnomaly({
           key: 'MODEL_LOAD_FAILED',
           message: 'Anomaly: AI monitoring failed to initialize. Please refresh the page.',
           severity: 'critical',
         });
+
         return;
       }
 
@@ -452,14 +500,64 @@ export default function ExamInterface({ studentName = 'Divyansh Rai' }) {
 
   const goToQuestion = (nextIndex) => {
     if (blockingAnomaly) return;
-    const bounded = Math.max(0, Math.min(QUESTIONS.length - 1, nextIndex));
+    const bounded = Math.max(0, Math.min(questions.length - 1, nextIndex));
     setCurrentQuestionIndex(bounded);
     setActiveTab('tests');
   };
 
-  const handleSubmitExam = () => {
-    if (blockingAnomaly) return;
-    setConsoleOutput((prev) => `${prev}\n\n[INFO] Exam submitted successfully.`);
+  const handleSubmitExam = async () => {
+    if (!sessionData?.examId || !sessionData?.erpToken) {
+      alert('Exam submitted! (Demo mode)');
+      return;
+    }
+
+    try {
+      // Build answers payload
+      const answersPayload = {};
+
+      questions.forEach(q => {
+        if (q.type === 'coding') {
+          answersPayload[q.id] = {
+            source_code: codeByQuestionId[q.id] || '',
+            language: language,
+          };
+        } else if (q.type === 'mcq') {
+          const sel = answers[q.id];
+          answersPayload[q.id] = {
+            selected: Array.isArray(sel)
+              ? sel.map(i => String.fromCharCode(97 + i))
+              : sel !== undefined ? [String.fromCharCode(97 + sel)] : [],
+          };
+        } else if (q.type === 'true_false') {
+          answersPayload[q.id] = { selected: answers[q.id] || '' };
+        } else if (q.type === 'one_word' || q.type === 'short_answer') {
+          answersPayload[q.id] = { text: answers[q.id] || '' };
+        } else if (q.type === 'match_following') {
+          answersPayload[q.id] = { pairs: answers[q.id] || {} };
+        }
+      });
+
+      const res = await fetch('/student/submit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionData.erpToken}`,
+        },
+        body: JSON.stringify({
+          exam_id: sessionData.examId,
+          answers: answersPayload,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Submission failed');
+
+      alert(`✅ Exam submitted successfully!\nSubmission ID: ${data.submission_id}`);
+
+    } catch (err) {
+      console.error('Submit error:', err);
+      alert(`Submission error: ${err.message}`);
+    }
   };
 
   const getDifficultyBadge = (difficulty) => {
@@ -482,6 +580,35 @@ export default function ExamInterface({ studentName = 'Divyansh Rai' }) {
     document.body.style.userSelect = 'none';
   };
 
+  {/* loading state */ }
+  if (questionsLoading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a', color: 'white', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ width: '40px', height: '40px', border: '3px solid #334155', borderTop: '3px solid #6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <div style={{ fontSize: '16px', color: '#94a3b8' }}>Loading exam questions...</div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  if (questionsError) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a', color: 'white', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ fontSize: '48px' }}>⚠️</div>
+        <div style={{ fontSize: '18px', color: '#ef4444' }}>Failed to load questions</div>
+        <div style={{ fontSize: '14px', color: '#94a3b8' }}>{questionsError}</div>
+      </div>
+    );
+  }
+
+  if (questions.length === 0) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a', color: 'white' }}>
+        <div>No questions found for this exam.</div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="flex h-screen w-screen flex-col overflow-hidden bg-[#0f172a] font-sans text-slate-800 selection:bg-indigo-100 selection:text-indigo-900"
@@ -491,6 +618,8 @@ export default function ExamInterface({ studentName = 'Divyansh Rai' }) {
       onKeyDown={blockKeyboardClipboardShortcuts}
       onContextMenu={blockClipboardEvent}
     >
+
+
       <header className="z-20 flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-8 py-4">
         <div className="flex items-center gap-5">
           <div className="flex items-center gap-3">
@@ -523,11 +652,17 @@ export default function ExamInterface({ studentName = 'Divyansh Rai' }) {
               <Camera size={18} />
             </button>
             <div className={`absolute left-1/2 top-14 z-50 flex h-40 w-56 -translate-x-1/2 transform flex-col items-center justify-center overflow-hidden rounded-2xl border border-slate-700/50 bg-slate-900/90 text-xs text-slate-400 shadow-2xl ring-1 ring-white/10 backdrop-blur-xl transition-all duration-200 ${showCameraPreview ? 'scale-100 opacity-100' : 'pointer-events-none scale-95 opacity-0'}`}>
-                <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/10 to-transparent" />
-                <video ref={cameraVideoRef} autoPlay muted playsInline className="absolute inset-0 h-full w-full object-cover" />
-                <div className="relative z-10 rounded bg-black/50 px-2 py-1 text-[11px] font-semibold text-white">
-                  {cameraError ? 'Camera unavailable' : 'Live Camera Preview'}
-                </div>
+              <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/10 to-transparent" />
+              <video
+                ref={cameraVideoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }}
+              />
+              <div className="relative z-10 rounded bg-black/50 px-2 py-1 text-[11px] font-semibold text-white">
+                {cameraError ? 'Camera unavailable' : 'Live Camera Preview'}
+              </div>
             </div>
           </div>
 
@@ -595,10 +730,133 @@ export default function ExamInterface({ studentName = 'Divyansh Rai' }) {
                 Constraints are tuned for optimized shortest-path logic. Think in layered states to represent before-override, in-override, and after-override transitions.
               </div>
 
+              {/* Non-coding question answer UI */}
+              {currentQuestion.type !== 'coding' && (
+                <div style={{ marginTop: '24px', padding: '20px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+
+                  {/* MCQ */}
+                  {currentQuestion.type === 'mcq' && (
+                    <div>
+                      <div style={{ fontWeight: '600', marginBottom: '12px', color: '#334155' }}>
+                        {currentQuestion.isMultiCorrect ? 'Select all correct answers:' : 'Select one correct answer:'}
+                      </div>
+                      {currentQuestion.options.map((opt, idx) => {
+                        const letter = String.fromCharCode(65 + idx);
+                        const sel = answers[currentQuestion.id];
+                        const isSelected = Array.isArray(sel) ? sel.includes(idx) : sel === idx;
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => {
+                              if (currentQuestion.isMultiCorrect) {
+                                const prev = answers[currentQuestion.id] || [];
+                                const next = prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx];
+                                setAnswers(a => ({ ...a, [currentQuestion.id]: next }));
+                              } else {
+                                setAnswers(a => ({ ...a, [currentQuestion.id]: idx }));
+                              }
+                            }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '12px',
+                              padding: '12px 16px', marginBottom: '8px',
+                              borderRadius: '8px', cursor: 'pointer',
+                              border: isSelected ? '2px solid #6366f1' : '1px solid #e2e8f0',
+                              background: isSelected ? '#eef2ff' : 'white',
+                              transition: 'all 0.15s',
+                            }}
+                          >
+                            <span style={{ width: '28px', height: '28px', borderRadius: currentQuestion.isMultiCorrect ? '6px' : '50%', border: '2px solid', borderColor: isSelected ? '#6366f1' : '#cbd5e1', background: isSelected ? '#6366f1' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '12px', fontWeight: '700', flexShrink: 0 }}>
+                              {isSelected ? '✓' : letter}
+                            </span>
+                            <span style={{ color: '#1e293b', fontSize: '14px' }}>{opt}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* True/False */}
+                  {currentQuestion.type === 'true_false' && (
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                      {['True', 'False'].map(val => {
+                        const isSelected = answers[currentQuestion.id] === val.toLowerCase();
+                        return (
+                          <button
+                            key={val}
+                            onClick={() => setAnswers(a => ({ ...a, [currentQuestion.id]: val.toLowerCase() }))}
+                            style={{
+                              flex: 1, padding: '14px', borderRadius: '10px', fontWeight: '700', fontSize: '15px', cursor: 'pointer', border: '2px solid', transition: 'all 0.15s',
+                              borderColor: isSelected ? '#6366f1' : '#e2e8f0',
+                              background: isSelected ? '#eef2ff' : 'white',
+                              color: isSelected ? '#6366f1' : '#475569',
+                            }}
+                          >
+                            {val === 'True' ? '✓ True' : '✗ False'}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* One Word / Short Answer */}
+                  {(currentQuestion.type === 'one_word' || currentQuestion.type === 'short_answer') && (
+                    <div>
+                      <div style={{ fontWeight: '600', marginBottom: '8px', color: '#334155' }}>
+                        {currentQuestion.type === 'one_word' ? 'Enter your answer (one word):' : 'Write your answer:'}
+                      </div>
+                      {currentQuestion.type === 'one_word' ? (
+                        <input
+                          type="text"
+                          value={answers[currentQuestion.id] || ''}
+                          onChange={e => setAnswers(a => ({ ...a, [currentQuestion.id]: e.target.value }))}
+                          placeholder="Type answer here..."
+                          style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', outline: 'none', fontFamily: 'inherit' }}
+                        />
+                      ) : (
+                        <textarea
+                          value={answers[currentQuestion.id] || ''}
+                          onChange={e => setAnswers(a => ({ ...a, [currentQuestion.id]: e.target.value }))}
+                          placeholder="Write your answer here..."
+                          rows={4}
+                          style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', outline: 'none', fontFamily: 'inherit', resize: 'vertical' }}
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Match the Following */}
+                  {currentQuestion.type === 'match_following' && (
+                    <div>
+                      <div style={{ fontWeight: '600', marginBottom: '12px', color: '#334155' }}>Match the following:</div>
+                      {currentQuestion.leftItems.map((left, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
+                          <div style={{ flex: 1, padding: '10px 14px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px' }}>
+                            {left.text || left}
+                          </div>
+                          <span style={{ color: '#94a3b8' }}>↔</span>
+                          <select
+                            value={(answers[currentQuestion.id] || {})[left.id || idx] || ''}
+                            onChange={e => setAnswers(a => ({ ...a, [currentQuestion.id]: { ...(a[currentQuestion.id] || {}), [left.id || idx]: e.target.value } }))}
+                            style={{ flex: 1, padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', outline: 'none' }}
+                          >
+                            <option value="">— Select —</option>
+                            {currentQuestion.rightItems.map((right, ridx) => (
+                              <option key={ridx} value={right.id || ridx}>{right.text || right}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="mt-6 flex items-center justify-between">
                 <button onClick={() => goToQuestion(currentQuestionIndex - 1)} disabled={currentQuestionIndex === 0 || Boolean(blockingAnomaly)} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50">Previous</button>
-                <div className="text-sm font-semibold text-slate-500">Question {currentQuestionIndex + 1} / {QUESTIONS.length}</div>
-                <button onClick={() => goToQuestion(currentQuestionIndex + 1)} disabled={currentQuestionIndex === QUESTIONS.length - 1 || Boolean(blockingAnomaly)} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50">Next</button>
+                <div className="text-sm font-semibold text-slate-500">
+                  Question {currentQuestionIndex + 1} / {questions.length}
+                </div>
+                <button onClick={() => goToQuestion(currentQuestionIndex + 1)} disabled={currentQuestionIndex === questions.length - 1 || Boolean(blockingAnomaly)} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50">Next</button>
               </div>
             </div>
           </div>

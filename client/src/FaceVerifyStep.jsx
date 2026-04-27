@@ -12,8 +12,11 @@ export default function FaceVerifyStep({ studentData, onNext }) {
 
   const [blinkCount, setBlinkCount] = useState(0);
   const [blinkProgress, setBlinkProgress] = useState(0);
-  const [selectedUser, setSelectedUser] = useState('/divyansh.jpg');
-
+  const [selectedUser, setSelectedUser] = useState(
+  (studentData?.erpPhotoUrl || '/student_profile.jpg')
+    .replace('http://127.0.0.1:8000', '')
+    .replace('http://localhost:8000', '')
+);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const erpPhotoRef = useRef(null);
@@ -382,11 +385,21 @@ export default function FaceVerifyStep({ studentData, onNext }) {
           <div style={styles.demoSwitcher}>
             <select
               value={selectedUser}
-              onChange={(e) => setSelectedUser(e.target.value)}
+              onChange={(e) => {
+                setSelectedUser(e.target.value);
+                if (erpPhotoRef.current) {
+                  erpPhotoRef.current.src = e.target.value
+                    .replace('http://127.0.0.1:8000', '')
+                    .replace('http://localhost:8000', '');
+                  erpDescriptorRef.current = null;
+                }
+              }}
               style={styles.select}
             >
-              <option value="/divyansh.jpg">Student: Divyansh Rai</option>
-              <option value="/professor.jpg">Admin: Professor</option>
+              <option value={studentData?.erpPhotoUrl || '/student_profile.jpg'}>
+                Student: {studentData?.studentName || 'Student'}
+              </option>
+              <option value="/divyansh.jpg">Admin: Divyansh Rai</option>
             </select>
           </div>
 
@@ -396,7 +409,13 @@ export default function FaceVerifyStep({ studentData, onNext }) {
               <div style={styles.imageWrapper}>
                 <img
                   ref={erpPhotoRef}
-                  src="/student_profile.jpg"
+                  src={
+                    studentData?.erpPhotoUrl
+                      ? studentData.erpPhotoUrl
+                        .replace('http://127.0.0.1:8000', '')
+                        .replace('http://localhost:8000', '')
+                      : '/student_profile.jpg'
+                  }
                   alt="ERP Profile"
                   onError={(e) => {
                     e.currentTarget.src = '/student_profile.jpg';

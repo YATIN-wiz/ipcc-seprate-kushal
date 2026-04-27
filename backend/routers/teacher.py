@@ -342,14 +342,17 @@ async def get_submission_detail(
                 "question_id":    str(r["question_id"]),
                 "question_title": r["question_title"],
                 "question_type":  r["question_type"],
-                "answer_data":    r["answer_data"],
+                "answer_data":    (
+                    json.loads(r["answer_data"])
+                    if isinstance(r["answer_data"], str)
+                    else (r["answer_data"] or {})
+                ),
                 "marks_awarded":  float(r["marks_awarded"]) if r["marks_awarded"] else None,
                 "max_marks":      float(r["max_marks"]),
             }
             for r in answers
         ]
     }
-
 # ═══════════════════════════════════════════════
 # PUBLISH EXAM
 # ═══════════════════════════════════════════════
@@ -460,6 +463,34 @@ async def get_branches_for_teacher(
             for r in rows
         ]
     }
+
+class EvaluateRequest(BaseModel):
+    submission_id: str
+    marks: float
+
+@router.post("/evaluate-submission")
+async def evaluate_submission_detail(
+    body: EvaluateRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_teacher),
+):
+    pool = request.app.state.db_pool
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE erp_submissions
+            SET obtained_marks = $1,
+                status = 'evaluated'::submission_status,
+                evaluated_at = now(),
+                evaluated_by = $2,
+                updated_at = now()
+            WHERE id = $3
+            """,
+            body.marks,
+            UUID(current_user["sub"]),
+            UUID(body.submission_id),
+        )
+    return {"message": "Evaluation saved"}
 from pydantic import BaseModel as PydanticBase
 
 class UpdateExamTimeRequest(PydanticBase):
@@ -488,3 +519,4 @@ async def update_exam_time(
             UUID(teacher_id),
         )
     return {"message": "Timing updated"}
+

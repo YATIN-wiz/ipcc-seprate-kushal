@@ -28,12 +28,22 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/student': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        secure: false,
+      },
       '/livekit-ws': {
         target: 'ws://127.0.0.1:7880',
         ws: true,
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/livekit-ws/, ''),
+      },
+      '/student_photos': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        secure: false,
       },
     },
   },

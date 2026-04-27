@@ -45,7 +45,11 @@ export default function App() {
         <FaceVerifyStep studentData={sessionData} onNext={handleFaceVerifySuccess} />
       )}
       {currentStep === 'exam' && sessionData && (
-        <ExamInterface studentName={sessionData.studentName || 'Divyansh Rai'} />
+        <ExamInterface
+          studentName={sessionData.studentName || 'Student'}
+          sessionData={sessionData}
+          cameraId={sessionData.cameraId}
+        />
       )}
     </div>
   );

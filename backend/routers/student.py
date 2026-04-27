@@ -238,10 +238,17 @@ async def get_student_exams(
 async def start_exam(
     body: StartExamRequest,
     request: Request,
-    current_user: dict = Depends(get_current_student),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer),
 ):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, ERP_JWT_SECRET, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    student_id = payload["sub"]
     pool = request.app.state.db_pool
-    student_id = current_user["sub"]
 
     async with pool.acquire() as conn:
         await fetch_student_profile(conn, student_id)
@@ -305,10 +312,17 @@ async def start_exam(
 async def get_exam_questions(
     exam_id: str,
     request: Request,
-    current_user: dict = Depends(get_current_student),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer),
 ):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, ERP_JWT_SECRET, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    student_id = payload["sub"]
     pool = request.app.state.db_pool
-    student_id = current_user["sub"]
 
     async with pool.acquire() as conn:
         submission = await conn.fetchrow(
@@ -327,15 +341,46 @@ async def get_exam_questions(
                 detail=f"Exam already {submission['status']}",
             )
 
+        # Verify exam is published
+        exam_check = await conn.fetchrow(
+            "SELECT id, is_published FROM erp_exams WHERE id = $1",
+            UUID(exam_id),
+        )
+        if not exam_check:
+            raise HTTPException(status_code=404, detail="Exam not found")
+        if not exam_check["is_published"]:
+            raise HTTPException(status_code=403, detail="Exam is not published yet")
+        
+        # Verify student has started the exam from dashboard
+        submission = await conn.fetchrow(
+            """
+            SELECT id, status FROM erp_submissions
+            WHERE exam_id    = $1
+              AND student_id = $2
+            """,
+            UUID(exam_id),
+            UUID(student_id),
+        )
+        if not submission:
+            raise HTTPException(
+                status_code=403,
+                detail="Please start the exam from your student dashboard first"
+            )
+        if submission["status"] not in ("in_progress", "submitted"):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Exam already {submission['status']}"
+            )
+
         rows = await conn.fetch(
             """
             SELECT
                 id, question_type, title, marks, order_index, is_required,
-                options,
+                options, correct_options,
                 description, input_format, output_format,
                 constraints, time_limit_ms, memory_limit_mb,
+                test_cases,
                 left_items, right_items
-                -- correct_options, correct_pairs, test_cases intentionally excluded
             FROM erp_questions
             WHERE exam_id = $1
             ORDER BY order_index ASC
@@ -379,19 +424,17 @@ async def get_exam_questions(
 async def submit_exam(
     body: SubmitExamRequest,
     request: Request,
-    current_user: dict = Depends(get_current_student),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer),
 ):
-    """
-    answers format:
-        {
-          "<question_uuid>": { "selected": ["a"] },         # MCQ
-          "<question_uuid>": { "text": "Newton" },          # ONE_WORD
-          "<question_uuid>": { "source_code": "...", ... }, # CODING
-          "<question_uuid>": { "pairs": [...] }             # MATCH
-        }
-    """
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, ERP_JWT_SECRET, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    student_id = payload["sub"]
     pool = request.app.state.db_pool
-    student_id = current_user["sub"]
 
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -498,4 +541,63 @@ async def get_student_results(
             }
             for r in rows
         ]
+    }
+
+# ── GET /student/exam-by-code/{exam_code} ─────────────────────────────────
+@router.get("/exam-by-code/{exam_code}")
+async def get_exam_by_code(
+    exam_code: str,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer),
+):
+    """
+    Resolves exam_code to exam_id.
+    Uses loose JWT check — works with both ERP token and our login token.
+    """
+    import os
+    token = credentials.credentials
+    ERP_JWT_SECRET = os.getenv("ERP_JWT_SECRET", "shared-secret-with-java-erp")
+    try:
+        jwt.decode(token, ERP_JWT_SECRET, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    pool = request.app.state.db_pool
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT
+                e.id            AS exam_id,
+                e.exam_code,
+                e.title,
+                e.duration_mins,
+                e.total_marks,
+                e.start_time,
+                e.end_time,
+                c.course_name
+            FROM erp_exams e
+            JOIN erp_courses c ON c.id = e.course_id
+            WHERE e.exam_code    = $1
+              AND e.is_published = TRUE
+            """,
+            exam_code,
+        )
+
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No published exam found for code: {exam_code}"
+        )
+
+    return {
+        "exam_id":       str(row["exam_id"]),
+        "exam_code":     row["exam_code"],
+        "title":         row["title"],
+        "duration_mins": row["duration_mins"],
+        "total_marks":   float(row["total_marks"]),
+        "course_name":   row["course_name"],
+        "start_time":    row["start_time"].isoformat(),
+        "end_time":      row["end_time"].isoformat(),
     }
