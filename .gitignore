@@ -41,3 +41,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+#ssl certificates
+client/cert.key
+client/cert.crt
