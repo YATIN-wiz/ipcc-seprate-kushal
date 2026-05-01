@@ -1542,7 +1542,9 @@
       } catch (e) {
         console.error('Logout error:', e);
       }
-      localStorage.clear();
+      //localStorage.clear();
+      localStorage.removeItem('ps_a_tok');
+      localStorage.removeItem('ps_a_usr');
       window.location.href = 'login.html';
     }
 

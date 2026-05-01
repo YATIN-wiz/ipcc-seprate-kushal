@@ -1740,7 +1740,7 @@
     // ═══════════════════════════════════
     // LOGIN / LOGOUT
     // ═══════════════════════════════════
-    async function doLogin() {
+    /*async function doLogin() {
       const email = document.getElementById('i-email').value.trim();
       const pass = document.getElementById('i-pass').value;
       const err = document.getElementById('lc-err');
@@ -1760,7 +1760,7 @@
         showApp();
       } catch (e) { err.textContent = e.message; err.style.display = 'block'; btn.disabled = false; btn.textContent = 'Sign In →'; }
     }
-
+    */
     function doLogout() {
       TOKEN = null; USER = null;
       localStorage.removeItem('ps_t_tok');

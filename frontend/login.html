@@ -525,13 +525,20 @@
 
 <body class="role-student">
 
-  <button onclick="toggleTheme()" style="
+ <!--<button onclick="toggleTheme()" style="
   position:absolute;top:20px;right:20px;
   background:var(--surface2);border:1px solid var(--border);
   border-radius:50%;width:36px;height:36px;
   display:flex;align-items:center;justify-content:center;
   cursor:pointer;font-size:16px;
-" id="theme-btn">🌙</button>
+" id="theme-btn">🌙</button>-->
+<button onclick="toggleTheme()" id="theme-btn" style="
+    position:absolute;top:20px;right:20px;
+    background:var(--surface2);border:1px solid var(--border);
+    border-radius:50%;width:36px;height:36px;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;font-size:17px;z-index:10;
+  ">☀️</button>
 
   <div class="bg-mesh"></div>
   <div class="bg-grid"></div>
@@ -546,9 +553,9 @@
       </div>
 
       <div class="left-title">Welcome back</div>
-      <div class="left-sub">Select your role to access your personalised dashboard and tools.</div>
+     <!--<div class="left-sub">Select your role to access your personalised dashboard and tools.</div>-->
 
-      <div class="role-label">Sign in as</div>
+     <!-- <div class="role-label">Sign in as</div>
       <div class="roles">
         <div class="role-btn on" id="rb-student" onclick="setRole('student')">
           <div class="role-icon">🎓</div>
@@ -574,31 +581,34 @@
           </div>
           <div class="role-check"></div>
         </div>
-      </div>
+      </div>-->
 
       <div class="left-footer">
         <strong>ProctorShield</strong> — AI-powered exam proctoring platform.<br>
-        All login activity is logged and monitored.
-      </div>
+      <span class="footer-subtext"> All login activity is logged and monitored.</span>
+      
+      
+</div>
+
     </div>
 
     <!-- RIGHT: login form -->
     <div class="right">
-      <button onclick="toggleTheme()" id="theme-btn" style="
+      <!--<button onclick="toggleTheme()" id="theme-btn" style="
     position:absolute;top:20px;right:20px;
     background:var(--surface2);border:1px solid var(--border);
     border-radius:50%;width:36px;height:36px;
     display:flex;align-items:center;justify-content:center;
     cursor:pointer;font-size:17px;z-index:10;
-  ">☀️</button>
+  ">☀️</button>-->
       <div class="form-header">
-        <div class="form-title" id="form-title">Student Sign In</div>
-        <div class="form-sub" id="form-sub">Access your courses and upcoming exams</div>
+        <div class="form-title" id="form-title">Sign In</div>
+        <div class="form-sub" id="form-sub">Login in to your account</div>
       </div>
 
-      <div style="margin-bottom:20px">
+      <!--<div style="margin-bottom:20px">
         <span class="role-badge" id="role-badge">🎓 Student Portal</span>
-      </div>
+      </div>-->
 
       <div class="field">
         <label>Email Address</label>
@@ -621,7 +631,8 @@
 
   <script>
     const BASE = 'http://localhost:8000';
-    let ROLE = 'student';
+    // let ROLE = 'student';
+
 
     // ── THEME ──────────────────────────────────────────────
     const THEME_KEY = 'ps_theme';
@@ -645,25 +656,25 @@
     document.querySelector('#i-pass').value = '';
     const META = {
       student: {
-        title: 'Student Sign In',
-        sub: 'Access your courses and upcoming exams',
-        badge: '🎓 Student Portal',
+        //title: 'Student Sign In',
+        //sub: 'Access your courses and upcoming exams',
+        //badge: '🎓 Student Portal',
         redirect: 'student.html',
         tokenKey: 'ps_tok',
         userKey: 'ps_usr',
       },
       teacher: {
-        title: 'Teacher Sign In',
-        sub: 'Manage your courses, exams and evaluations',
-        badge: '👨‍🏫 Teacher Portal',
+        //title: 'Teacher Sign In',
+        //sub: 'Manage your courses, exams and evaluations',
+        //badge: '👨‍🏫 Teacher Portal',
         redirect: 'teacher.html',
         tokenKey: 'ps_t_tok',
         userKey: 'ps_t_usr',
       },
       admin: {
-        title: 'Admin Sign In',
-        sub: 'Full platform control and monitoring',
-        badge: '🛡 Admin Dashboard',
+        //title: 'Admin Sign In',
+        //sub: 'Full platform control and monitoring',
+        //badge: '🛡 Admin Dashboard',
         redirect: 'admin.html',
         tokenKey: 'ps_a_tok',
         userKey: 'ps_a_usr',
@@ -690,7 +701,8 @@
     })();
 
     // ── Role switcher ──
-    function setRole(role) {
+
+  /*function setRole(role) {
       ROLE = role;
       // Remove old role classes but preserve light/dark
       document.body.classList.remove('role-student', 'role-teacher', 'role-admin');
@@ -707,60 +719,69 @@
       document.getElementById('form-sub').textContent = m.sub;
       document.getElementById('role-badge').textContent = m.badge;
       document.getElementById('err-box').style.display = 'none';
+  } */
+  async function doLogin() {
+    const email = document.getElementById('i-email').value.trim();
+    const pass = document.getElementById('i-pass').value;
+    const err = document.getElementById('err-box');
+    const btn = document.getElementById('btn-sign');
+
+  // Reset error
+    err.style.display = 'none';
+
+  // Basic validation
+    if (!email || !pass) {
+      err.textContent = 'Please enter your email and password.';
+      err.style.display = 'block';
+      return;
     }
 
-    // ── Login ──
-    async function doLogin() {
-      const email = document.getElementById('i-email').value.trim();
-      const pass = document.getElementById('i-pass').value;
-      const err = document.getElementById('err-box');
-      const btn = document.getElementById('btn-sign');
+  // Disable button while loading
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
 
-      err.style.display = 'none';
-      if (!email || !pass) {
-        err.textContent = 'Please enter your email and password.';
-        err.style.display = 'block'; return;
+    try {
+      const res = await fetch(BASE + '/erp/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email,
+          password: pass
+        })
+      });
+
+    // Handle invalid response
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({ detail: 'Login failed' }));
+        throw new Error(e.detail || 'Invalid credentials');
       }
 
-      btn.disabled = true; btn.textContent = 'Signing in…';
+      const data = await res.json();
 
-      try {
-        const res = await fetch(BASE + '/erp/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password: pass }),
-        });
+    // 🔥 RBAC CORE LOGIC
+      const role = (data.user.role || '').toLowerCase().trim();
 
-        if (!res.ok) {
-          const e = await res.json().catch(() => ({ detail: 'Login failed' }));
-          throw new Error(e.detail || 'Login failed');
-        }
-
-        const data = await res.json();
-
-        // Role guard — must match selected role
-        if (data.user.role !== ROLE) {
-          err.textContent = `This account is a ${data.user.role}. Please select the correct role.`;
-          err.style.display = 'block';
-          btn.disabled = false; btn.textContent = 'Sign In →';
-          // Highlight the correct role
-          setRole(data.user.role);
-          return;
-        }
-
-        const m = META[ROLE];
-        localStorage.setItem(m.tokenKey, data.access_token);
-        localStorage.setItem(m.userKey, JSON.stringify(data.user));
-
-        btn.textContent = '✓ Redirecting…';
-        setTimeout(() => { window.location.href = m.redirect; }, 400);
-
-      } catch (e) {
-        err.textContent = e.message;
-        err.style.display = 'block';
-        btn.disabled = false; btn.textContent = 'Sign In →';
+      if (!role || !META[role]) {
+        throw new Error('Invalid role returned from server');
       }
+
+      const m = META[role];
+
+    // Store token + user
+      localStorage.setItem(m.tokenKey, data.access_token);
+      localStorage.setItem(m.userKey, JSON.stringify(data.user));
+
+    // Redirect based on role
+      window.location.href = m.redirect;
+
+    } catch (e) {
+      err.textContent = e.message;
+      err.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Sign In →';
     }
+  }
+  
   </script>
 </body>
 
